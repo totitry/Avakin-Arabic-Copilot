@@ -1,6 +1,6 @@
-# [Project name]
+# Avakin Arabic Copilot
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+An Arabic-first, privacy-focused conversation companion for Avakin Life that prepares natural reply suggestions from visible user-authorized chat without ever sending them automatically.
 
 ## Run & Operate
 
@@ -22,23 +22,30 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/avakin-copilot/src/App.tsx` — the local-first assistant experience, routes, and browser persistence.
+- `artifacts/avakin-copilot/src/index.css` — shared visual language and responsive layout styles.
+- `artifacts/avakin-copilot` — deployable React/Vite web app.
+- `artifacts/api-server` — shared API service scaffold, currently retained for future server-side OCR/LLM features.
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- The first MVP is local-first: browser storage holds user-selected settings, personalities, favorites, reply history, and explicit saved sessions.
+- Screen capture uses the browser's user-authorized `getDisplayMedia` flow; stopping the assistant cleans up tracks and temporary capture state.
+- OCR is represented as an upgrade-ready boundary with honest manual/demo input states instead of claiming unsupported browser OCR is active.
+- Suggestions always end at copy-to-clipboard; the app never types or sends messages into Avakin.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+The app provides an RTL Arabic live assistant workspace, personality and dialect controls, manual and demo chat ingestion, focus and ignore controls for multiple players, conflict-aware reply modes, three distinct copyable suggestions, favorites, history, saved sessions, import/export, and privacy controls.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+Arabic is the default interface language. The product should stay premium, responsive in a narrow side panel, and privacy-first.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Browser screen capture and clipboard behavior depend on explicit browser permissions and cannot be silently enabled.
+- The app must preserve manual copy/paste as the final user-controlled action and must not add unofficial Avakin integrations.
 
 ## Pointers
 

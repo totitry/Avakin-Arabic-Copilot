@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Avakin Arabic Copilot"
+description = "An Arabic-first real-time conversation copilot for Avakin Life that reads user-authorized visible chat, keeps conversation context, and prepares natural reply suggestions for manual copy and paste."
+version = "1.0.0"
+id = "artifacts/avakin-copilot"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 18780
+
+[services.development]
+run = "pnpm --filter @workspace/avakin-copilot run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/avakin-copilot", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/avakin-copilot/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "18780"
+BASE_PATH = "/"
