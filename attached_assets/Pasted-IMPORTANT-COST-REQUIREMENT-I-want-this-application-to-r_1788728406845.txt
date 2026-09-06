@@ -1,0 +1,197 @@
+IMPORTANT COST REQUIREMENT:
+
+I want this application to remain completely free to run for my personal use whenever possible.
+
+Do NOT integrate paid APIs or services unless there is absolutely no free alternative.
+
+Configure the application as follows:
+
+1. AI RESPONSE GENERATION
+
+Use the Google Gemini Developer API Free Tier as the primary AI provider.
+
+Use:
+
+gemini-3.7-flash
+
+The API key will be provided through the server-side environment variable:
+
+GEMINI_API_KEY
+
+Never expose GEMINI_API_KEY in:
+
+* frontend JavaScript
+* browser source code
+* public environment variables
+* Git repository
+* logs
+
+All Gemini API requests must go through a secure server-side API route.
+
+Do NOT require:
+
+* OpenAI API
+* Anthropic paid API
+* paid Replit AI integrations
+* any paid LLM provider
+
+If Gemini Free Tier quota is exhausted:
+
+Do NOT automatically switch to a paid API.
+
+Instead show an Arabic message:
+
+"خلص الحد المجاني للذكاء الاصطناعي حاليًا جرب مرة ثانية لاحقًا"
+
+The application must continue working for OCR, screen capture, history and other local features even if AI quota is temporarily unavailable.
+
+2. OCR
+
+Use free local browser OCR.
+
+Prefer:
+
+Tesseract.js
+
+Run OCR client-side whenever practical.
+
+Do NOT use paid services such as:
+
+* Google Cloud Vision paid OCR
+* AWS Textract
+* Azure OCR
+* paid OCR APIs
+
+The Avakin chat crop should be processed locally.
+
+3. SCREEN CAPTURE
+
+Use the browser Screen Capture API:
+
+navigator.mediaDevices.getDisplayMedia()
+
+This feature must require explicit user permission.
+
+No paid screen-capture API is needed.
+
+4. CHANGE DETECTION
+
+Perform frame difference and chat-region change detection locally in the browser.
+
+Do not send video frames continuously to an external API.
+
+Only process OCR when the Avakin chat area visually changes.
+
+5. DATABASE / STORAGE
+
+For the first personal-use version:
+
+Do NOT require Supabase or another external paid database.
+
+Use:
+
+IndexedDB
+
+for:
+
+* reply history
+* saved personalities
+* favorite replies
+* preferences
+* dialect settings
+* learned style settings
+* session data when explicitly saved
+
+Use localStorage only for small simple UI preferences when appropriate.
+
+Create a storage abstraction so cloud sync can be added later without rewriting the application.
+
+6. AVATAR IMAGE ANALYSIS
+
+Do not continuously send the entire Avakin screen to an AI vision API.
+
+Keep Avatar Vision optional.
+
+Only analyze an avatar image when explicitly needed.
+
+Prefer cropping only the relevant avatar area.
+
+Do not make Avatar Vision necessary for normal chat functionality.
+
+7. API USAGE OPTIMIZATION
+
+Gemini API requests must only happen when useful.
+
+Pipeline:
+
+screen
+→ local crop
+→ local change detection
+→ local OCR
+→ duplicate removal
+→ conversation relevance detection
+→ Gemini request only for relevant new messages
+
+Never send an AI request for every video frame.
+
+Group consecutive messages from the same player when appropriate.
+
+Cache conversation summaries.
+
+Cancel outdated generation requests.
+
+Keep prompts compact while preserving useful context.
+
+8. FREE-TIER SAFETY
+
+Do not implement anything that automatically upgrades the project to a paid service.
+
+Do not require billing information.
+
+Do not activate paid Google Cloud services.
+
+Do not silently fall back to paid models.
+
+When a free service limit is reached, gracefully pause that feature and tell the user.
+
+9. HOSTING
+
+Keep the project compatible with the Replit Starter free deployment whenever possible.
+
+Do not intentionally add infrastructure that requires a paid Replit plan.
+
+10. FALLBACK MODE
+
+If Gemini is temporarily unavailable or free quota is exhausted:
+
+The app should still:
+
+* capture the screen
+* detect Avakin chat
+* perform OCR
+* maintain conversation history
+* detect players
+* preserve old AI replies
+* allow copying previous replies
+
+Only new AI reply generation should temporarily pause.
+
+11. FINAL COST GOAL
+
+The intended personal-use architecture is:
+
+Replit free hosting
++
+Browser Screen Capture API
++
+Tesseract.js local OCR
++
+local frame/change detection
++
+IndexedDB local storage
++
+Gemini Free Tier for AI responses
+
+The application must NOT unnecessarily introduce paid dependencies.
+
+Implement this architecture directly rather than merely describing it.
