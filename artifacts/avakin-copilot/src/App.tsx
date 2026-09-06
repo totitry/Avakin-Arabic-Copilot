@@ -555,7 +555,7 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
                    <button type="button" onClick={cancelCalibration} data-testid="button-cancel-calibration" className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted" aria-label="إغلاق المعايرة"><X size={15} /></button>
                  </div>
                  <div className="relative aspect-video overflow-hidden rounded-lg bg-slate-950">
-                   <video ref={videoRef} className={`absolute inset-0 h-full w-full object-fill ${captureState === 'capturing' ? '' : 'hidden'}`} muted playsInline />
+                  <video ref={videoRef} data-testid="capture-preview-video" className={`absolute inset-0 h-full w-full object-fill ${captureState === 'capturing' ? '' : 'hidden'}`} muted playsInline />
                    {captureState === 'capturing' ? <CropSelector crop={calibrationDraft} onChange={setCalibrationDraft} /> : <div className="absolute inset-0 grid place-items-center p-6 text-center text-xs text-white/75"><div><Monitor size={22} className="mx-auto mb-2 text-accent" /><p className="font-bold text-white">المعاينة تظهر بعد بدء مشاركة الشاشة</p><p className="mt-1 text-[10px] leading-5">ابدأ المشاركة ثم افتح المعايرة لتحديد الشات بدقة.</p></div></div>}
                  </div>
                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
