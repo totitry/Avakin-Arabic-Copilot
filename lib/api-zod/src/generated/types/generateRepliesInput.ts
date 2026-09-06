@@ -5,14 +5,29 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ChatContextMessage } from './chatContextMessage';
 import type { GenerateRepliesInputMode } from './generateRepliesInputMode';
 import type { PersonalityInput } from './personalityInput';
 
 export interface GenerateRepliesInput {
-  /** @minLength 1 */
+  /**
+     * @minLength 1
+     * @maxLength 1000
+     */
   message: string;
+  /** @maxLength 64 */
+  avakinUsername: string;
+  /** @maxLength 64 */
+  focusedPlayer: string;
+  /** @maxLength 2500 */
+  globalSummary: string;
+  /** @maxLength 2500 */
+  playerSummary: string;
+  /** @maxItems 30 */
+  recentMessages: ChatContextMessage[];
   /** @maxItems 8 */
-  recentMessages: string[];
+  newMessages: ChatContextMessage[];
+  /** @maxLength 40 */
   dialect: string;
   /**
      * @minimum 0

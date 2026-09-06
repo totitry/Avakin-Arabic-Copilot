@@ -77,28 +77,45 @@ components:
       properties:
         name:
           type: string
+          maxLength: 80
         description:
           type: string
+          maxLength: 500
         warmth:
           type: integer
+          minimum: 0
+          maximum: 100
         humor:
           type: integer
+          minimum: 0
+          maximum: 100
         confidence:
           type: integer
+          minimum: 0
+          maximum: 100
         directness:
           type: integer
+          minimum: 0
+          maximum: 100
         playfulness:
           type: integer
+          minimum: 0
+          maximum: 100
         responseLength:
           type: string
+          maxLength: 40
         preferredWords:
           type: array
+          maxItems: 12
           items:
             type: string
+            maxLength: 60
         blockedWords:
           type: array
+          maxItems: 12
           items:
             type: string
+            maxLength: 60
       required:
         - name
         - description
@@ -116,13 +133,32 @@ components:
         message:
           type: string
           minLength: 1
+          maxLength: 1000
+        avakinUsername:
+          type: string
+          maxLength: 64
+        focusedPlayer:
+          type: string
+          maxLength: 64
+        globalSummary:
+          type: string
+          maxLength: 2500
+        playerSummary:
+          type: string
+          maxLength: 2500
         recentMessages:
           type: array
           items:
-            type: string
+            $ref: "#/components/schemas/ChatContextMessage"
+          maxItems: 30
+        newMessages:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChatContextMessage"
           maxItems: 8
         dialect:
           type: string
+          maxLength: 40
         dialectStrength:
           type: integer
           minimum: 0
@@ -134,11 +170,48 @@ components:
           $ref: "#/components/schemas/PersonalityInput"
       required:
         - message
+        - avakinUsername
+        - focusedPlayer
+        - globalSummary
+        - playerSummary
         - recentMessages
+        - newMessages
         - dialect
         - dialectStrength
         - mode
         - personality
+    ChatContextMessage:
+      type: object
+      properties:
+        order:
+          type: integer
+        speaker:
+          type: string
+          maxLength: 64
+        text:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        timestamp:
+          type: string
+          maxLength: 64
+        isMine:
+          type: boolean
+        directedAtMe:
+          type: boolean
+        mentionsMe:
+          type: boolean
+        focusedPlayer:
+          type: boolean
+      required:
+        - order
+        - speaker
+        - text
+        - timestamp
+        - isMine
+        - directedAtMe
+        - mentionsMe
+        - focusedPlayer
     ReplySuggestion:
       type: object
       properties:

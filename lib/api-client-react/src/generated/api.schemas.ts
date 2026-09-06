@@ -10,15 +10,46 @@ export interface HealthStatus {
 }
 
 export interface PersonalityInput {
+  /** @maxLength 80 */
   name: string;
+  /** @maxLength 500 */
   description: string;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
   warmth: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
   humor: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
   confidence: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
   directness: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
   playfulness: number;
+  /** @maxLength 40 */
   responseLength: string;
+  /**
+     * @maxItems 12
+     * @items.maxLength 60
+     */
   preferredWords: string[];
+  /**
+     * @maxItems 12
+     * @items.maxLength 60
+     */
   blockedWords: string[];
 }
 
@@ -30,11 +61,42 @@ export const GenerateRepliesInputMode = {
   calm: 'calm',
 } as const;
 
+export interface ChatContextMessage {
+  order: number;
+  /** @maxLength 64 */
+  speaker: string;
+  /**
+     * @minLength 1
+     * @maxLength 1000
+     */
+  text: string;
+  /** @maxLength 64 */
+  timestamp: string;
+  isMine: boolean;
+  directedAtMe: boolean;
+  mentionsMe: boolean;
+  focusedPlayer: boolean;
+}
+
 export interface GenerateRepliesInput {
-  /** @minLength 1 */
+  /**
+     * @minLength 1
+     * @maxLength 1000
+     */
   message: string;
+  /** @maxLength 64 */
+  avakinUsername: string;
+  /** @maxLength 64 */
+  focusedPlayer: string;
+  /** @maxLength 2500 */
+  globalSummary: string;
+  /** @maxLength 2500 */
+  playerSummary: string;
+  /** @maxItems 30 */
+  recentMessages: ChatContextMessage[];
   /** @maxItems 8 */
-  recentMessages: string[];
+  newMessages: ChatContextMessage[];
+  /** @maxLength 40 */
   dialect: string;
   /**
      * @minimum 0

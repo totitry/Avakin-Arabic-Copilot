@@ -21,31 +21,108 @@ export const HealthCheckResponse = zod.object({
  * Generates compact reply suggestions through the server-side Gemini Free Tier route.
  * @summary Generate three reply suggestions
  */
+export const generateGeminiRepliesBodyMessageMax = 1000;
 
-export const generateGeminiRepliesBodyRecentMessagesMax = 8;
+export const generateGeminiRepliesBodyAvakinUsernameMax = 64;
+
+export const generateGeminiRepliesBodyFocusedPlayerMax = 64;
+
+export const generateGeminiRepliesBodyGlobalSummaryMax = 2500;
+
+export const generateGeminiRepliesBodyPlayerSummaryMax = 2500;
+
+export const generateGeminiRepliesBodyRecentMessagesItemSpeakerMax = 64;
+
+export const generateGeminiRepliesBodyRecentMessagesItemTextMax = 1000;
+
+export const generateGeminiRepliesBodyRecentMessagesItemTimestampMax = 64;
+
+export const generateGeminiRepliesBodyRecentMessagesMax = 30;
+
+export const generateGeminiRepliesBodyNewMessagesItemSpeakerMax = 64;
+
+export const generateGeminiRepliesBodyNewMessagesItemTextMax = 1000;
+
+export const generateGeminiRepliesBodyNewMessagesItemTimestampMax = 64;
+
+export const generateGeminiRepliesBodyNewMessagesMax = 8;
+
+export const generateGeminiRepliesBodyDialectMax = 40;
 
 export const generateGeminiRepliesBodyDialectStrengthMin = 0;
 export const generateGeminiRepliesBodyDialectStrengthMax = 100;
 
+export const generateGeminiRepliesBodyPersonalityNameMax = 80;
+
+export const generateGeminiRepliesBodyPersonalityDescriptionMax = 500;
+
+export const generateGeminiRepliesBodyPersonalityWarmthMin = 0;
+export const generateGeminiRepliesBodyPersonalityWarmthMax = 100;
+
+export const generateGeminiRepliesBodyPersonalityHumorMin = 0;
+export const generateGeminiRepliesBodyPersonalityHumorMax = 100;
+
+export const generateGeminiRepliesBodyPersonalityConfidenceMin = 0;
+export const generateGeminiRepliesBodyPersonalityConfidenceMax = 100;
+
+export const generateGeminiRepliesBodyPersonalityDirectnessMin = 0;
+export const generateGeminiRepliesBodyPersonalityDirectnessMax = 100;
+
+export const generateGeminiRepliesBodyPersonalityPlayfulnessMin = 0;
+export const generateGeminiRepliesBodyPersonalityPlayfulnessMax = 100;
+
+export const generateGeminiRepliesBodyPersonalityResponseLengthMax = 40;
+
+export const generateGeminiRepliesBodyPersonalityPreferredWordsItemMax = 60;
+
+export const generateGeminiRepliesBodyPersonalityPreferredWordsMax = 12;
+
+export const generateGeminiRepliesBodyPersonalityBlockedWordsItemMax = 60;
+
+export const generateGeminiRepliesBodyPersonalityBlockedWordsMax = 12;
+
 
 
 export const GenerateGeminiRepliesBody = zod.object({
-  "message": zod.string().min(1),
-  "recentMessages": zod.array(zod.string()).max(generateGeminiRepliesBodyRecentMessagesMax),
-  "dialect": zod.string(),
+  "message": zod.string().min(1).max(generateGeminiRepliesBodyMessageMax),
+  "avakinUsername": zod.string().max(generateGeminiRepliesBodyAvakinUsernameMax),
+  "focusedPlayer": zod.string().max(generateGeminiRepliesBodyFocusedPlayerMax),
+  "globalSummary": zod.string().max(generateGeminiRepliesBodyGlobalSummaryMax),
+  "playerSummary": zod.string().max(generateGeminiRepliesBodyPlayerSummaryMax),
+  "recentMessages": zod.array(zod.object({
+  "order": zod.number().int(),
+  "speaker": zod.string().max(generateGeminiRepliesBodyRecentMessagesItemSpeakerMax),
+  "text": zod.string().min(1).max(generateGeminiRepliesBodyRecentMessagesItemTextMax),
+  "timestamp": zod.string().max(generateGeminiRepliesBodyRecentMessagesItemTimestampMax),
+  "isMine": zod.boolean(),
+  "directedAtMe": zod.boolean(),
+  "mentionsMe": zod.boolean(),
+  "focusedPlayer": zod.boolean()
+})).max(generateGeminiRepliesBodyRecentMessagesMax),
+  "newMessages": zod.array(zod.object({
+  "order": zod.number().int(),
+  "speaker": zod.string().max(generateGeminiRepliesBodyNewMessagesItemSpeakerMax),
+  "text": zod.string().min(1).max(generateGeminiRepliesBodyNewMessagesItemTextMax),
+  "timestamp": zod.string().max(generateGeminiRepliesBodyNewMessagesItemTimestampMax),
+  "isMine": zod.boolean(),
+  "directedAtMe": zod.boolean(),
+  "mentionsMe": zod.boolean(),
+  "focusedPlayer": zod.boolean()
+})).max(generateGeminiRepliesBodyNewMessagesMax),
+  "dialect": zod.string().max(generateGeminiRepliesBodyDialectMax),
   "dialectStrength": zod.number().int().min(generateGeminiRepliesBodyDialectStrengthMin).max(generateGeminiRepliesBodyDialectStrengthMax),
   "mode": zod.enum(['quick', 'calm']),
   "personality": zod.object({
-  "name": zod.string(),
-  "description": zod.string(),
-  "warmth": zod.number().int(),
-  "humor": zod.number().int(),
-  "confidence": zod.number().int(),
-  "directness": zod.number().int(),
-  "playfulness": zod.number().int(),
-  "responseLength": zod.string(),
-  "preferredWords": zod.array(zod.string()),
-  "blockedWords": zod.array(zod.string())
+  "name": zod.string().max(generateGeminiRepliesBodyPersonalityNameMax),
+  "description": zod.string().max(generateGeminiRepliesBodyPersonalityDescriptionMax),
+  "warmth": zod.number().int().min(generateGeminiRepliesBodyPersonalityWarmthMin).max(generateGeminiRepliesBodyPersonalityWarmthMax),
+  "humor": zod.number().int().min(generateGeminiRepliesBodyPersonalityHumorMin).max(generateGeminiRepliesBodyPersonalityHumorMax),
+  "confidence": zod.number().int().min(generateGeminiRepliesBodyPersonalityConfidenceMin).max(generateGeminiRepliesBodyPersonalityConfidenceMax),
+  "directness": zod.number().int().min(generateGeminiRepliesBodyPersonalityDirectnessMin).max(generateGeminiRepliesBodyPersonalityDirectnessMax),
+  "playfulness": zod.number().int().min(generateGeminiRepliesBodyPersonalityPlayfulnessMin).max(generateGeminiRepliesBodyPersonalityPlayfulnessMax),
+  "responseLength": zod.string().max(generateGeminiRepliesBodyPersonalityResponseLengthMax),
+  "preferredWords": zod.array(zod.string().max(generateGeminiRepliesBodyPersonalityPreferredWordsItemMax)).max(generateGeminiRepliesBodyPersonalityPreferredWordsMax),
+  "blockedWords": zod.array(zod.string().max(generateGeminiRepliesBodyPersonalityBlockedWordsItemMax)).max(generateGeminiRepliesBodyPersonalityBlockedWordsMax)
 })
 })
 

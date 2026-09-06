@@ -1,1 +1,2 @@
 - [Artifact build environment](artifact-build-environment.md) — standalone Vite builds need the managed PORT and BASE_PATH values supplied explicitly.
+- [Stateful Wouter routes](stateful-wouter-routes.md) — avoid inline route component factories for live surfaces; parent updates can remount and reset local state.

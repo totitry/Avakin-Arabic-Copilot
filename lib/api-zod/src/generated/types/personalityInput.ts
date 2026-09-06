@@ -7,14 +7,45 @@
  */
 
 export interface PersonalityInput {
+  /** @maxLength 80 */
   name: string;
+  /** @maxLength 500 */
   description: string;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
   warmth: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
   humor: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
   confidence: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
   directness: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
   playfulness: number;
+  /** @maxLength 40 */
   responseLength: string;
+  /**
+     * @maxItems 12
+     * @items.maxLength 60
+     */
   preferredWords: string[];
+  /**
+     * @maxItems 12
+     * @items.maxLength 60
+     */
   blockedWords: string[];
 }

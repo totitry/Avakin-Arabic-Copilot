@@ -1,0 +1,944 @@
+# CRITICAL UPDATE — FULL CHAT MEMORY + SPEAKER TRACKING + LIVE GEMINI REPLIES
+
+Merge everything below into the existing application.
+
+Do NOT remove or replace any previous requirements.
+
+This update is CRITICAL because the AI must understand the full Avakin conversation context correctly.
+
+==================================================
+1 — CAPTURE ALL CHAT MESSAGES
+=============================
+
+While Live Avakin Assistant is active:
+
+The application must continuously read the selected Avakin chat area.
+
+Whenever OCR detects text from the Avakin chat:
+
+Do NOT only save messages that require a reply.
+
+Save ALL successfully detected chat messages in the current session conversation log.
+
+This includes:
+
+* messages directed at me
+* messages from the focused player
+* messages between other players
+* questions
+* jokes
+* general conversation
+* arguments
+* short messages
+* my own messages
+* relevant system-like chat text if useful
+
+The reason is that even messages that do not currently require a reply may become important context later.
+
+==================================================
+2 — IDENTIFY WHO SAID EVERY MESSAGE
+===================================
+
+Every detected chat message must be associated with the correct speaker whenever possible.
+
+For every message store:
+
+* unique message ID
+* player name
+* message text
+* detection timestamp
+* message order
+* whether it is my own message
+* whether it appears directed at me
+* whether it mentions my name
+* whether it belongs to the focused player's conversation
+* OCR confidence
+* raw OCR text if needed
+* cleaned text
+* relationship context
+* conversation/thread context when possible
+
+Example:
+
+{
+"id": "msg_123",
+"speaker": "Ahmed",
+"text": "وينج ما تردين",
+"timestamp": "...",
+"isMine": false,
+"directedAtMe": true,
+"focusedPlayer": true
+}
+
+Do NOT store chat as one giant unstructured paragraph.
+
+The system must understand:
+
+Ahmed said this
+
+Sara said this
+
+I replied with this
+
+Faisal then responded to Ahmed
+
+etc.
+
+==================================================
+3 — MAINTAIN MESSAGE ORDER
+==========================
+
+Keep the exact detected order of conversation.
+
+Example:
+
+1. Ahmed: وينج
+2. Sara: تعالي عندنا
+3. Me: دقيقه
+4. Ahmed: عندي سالفه
+5. Sara: اوكي بننتظر
+
+Gemini must be able to understand this order.
+
+Do not send messages to Gemini in random order.
+
+==================================================
+4 — MY OWN MESSAGES
+===================
+
+The application must identify my own Avakin username when possible.
+
+Provide a setting:
+
+**اسمي في Avakin**
+
+I can manually enter my Avakin username.
+
+Use this to improve detection of my own messages.
+
+If OCR detects that username:
+
+mark:
+
+`isMine = true`
+
+My actual Avakin messages are extremely important for context.
+
+Never assume an AI suggestion was sent.
+
+If I actually paste something into Avakin and OCR later sees it:
+
+that real message becomes part of the official conversation history.
+
+==================================================
+5 — FULL SESSION CHAT LOG
+=========================
+
+Create an internal:
+
+**Live Chat Log**
+
+This is different from Reply History.
+
+Live Chat Log contains the actual Avakin conversation detected from the screen.
+
+Reply History contains the AI suggestions.
+
+Keep these two concepts separate.
+
+LIVE CHAT LOG:
+
+Ahmed:
+وينج
+
+Sara:
+تعالي
+
+Me:
+دقيقه
+
+Ahmed:
+عندي سالفه
+
+REPLY HISTORY:
+
+AI suggestions created for Ahmed's message.
+
+This separation is mandatory.
+
+==================================================
+6 — NEVER DELETE CONTEXT JUST BECAUSE NO REPLY WAS GENERATED
+============================================================
+
+If a message did not need a Gemini response:
+
+still save it in the conversation.
+
+Example:
+
+Ahmed:
+"سارة قالت إنها بتروح"
+
+The AI may decide no reply is required.
+
+However this message must still remain in context because later someone may say:
+
+Sara:
+"انا ما قلت كذا"
+
+Gemini needs the previous message to understand what happened.
+
+==================================================
+7 — CONVERSATION MEMORY PER PLAYER
+==================================
+
+Maintain a conversation memory/thread for every detected player.
+
+For example:
+
+Ahmed context:
+
+* recent Ahmed messages
+* my recent messages to Ahmed
+* current topic
+* unanswered questions
+* previous jokes
+* recent disagreement
+* relationship setting
+* last interaction
+
+Sara context:
+separate context.
+
+Faisal context:
+separate context.
+
+Also maintain a GLOBAL ROOM CONTEXT containing the full important conversation.
+
+This prevents conversations between multiple players from becoming mixed together.
+
+==================================================
+8 — GLOBAL ROOM CONTEXT
+=======================
+
+Because Avakin rooms can contain several people:
+
+Maintain a global timeline of the conversation.
+
+Gemini should be able to understand situations such as:
+
+Ahmed speaks to Sara
+
+Sara replies to Ahmed
+
+Ahmed later talks to me
+
+without falsely assuming every message was directed at me.
+
+Use speaker names and conversation order to estimate who each message is addressing.
+
+==================================================
+9 — FOCUSED PLAYER DOES NOT REMOVE OTHER CONTEXT
+================================================
+
+Focus Mode only changes PRIORITY.
+
+It must NOT delete or stop saving other players' messages.
+
+If I focus on Ahmed:
+
+* Ahmed gets highest priority for reply generation
+* Ahmed's messages are highlighted
+* Gemini receives more detailed Ahmed context
+
+BUT:
+
+Sara, Faisal and other players must still be captured and stored.
+
+Their messages may be necessary to understand what Ahmed is talking about.
+
+==================================================
+10 — SAVE ALL DETECTED CHAT DURING SESSION
+==========================================
+
+During the active session:
+
+Do not automatically remove earlier chat messages from the source conversation log.
+
+Use efficient memory management.
+
+If the session becomes very long:
+
+Keep the original chat in local session storage when practical
+
+AND create compact summaries for AI context.
+
+Do not simply forget old events.
+
+==================================================
+11 — CONTEXT COMPRESSION FOR GEMINI
+===================================
+
+Gemini does NOT need the full thousands-message history on every request.
+
+Maintain two levels of memory:
+
+A) FULL LOCAL SESSION LOG
+
+Contains all detected Avakin messages.
+
+B) AI CONTEXT MEMORY
+
+Contains:
+
+* recent relevant messages
+* focused player's recent messages
+* current topic
+* important earlier events
+* unanswered questions
+* conflict summary
+* compact summary of older chat
+
+This keeps Gemini requests efficient while preserving context.
+
+==================================================
+12 — RECENT MESSAGE WINDOW
+==========================
+
+For normal Gemini response generation:
+
+Include approximately the most recent relevant:
+
+10–30 messages
+
+depending on conversation activity.
+
+Also include:
+
+* compact older conversation summary
+* focused player summary
+* relevant relationship context
+
+Do not blindly include 30 irrelevant room messages if only 5 matter.
+
+==================================================
+13 — CONTEXT SUMMARY
+====================
+
+When conversation becomes long:
+
+Generate/update a compact context summary such as:
+
+"Ahmed has been asking the user to join him and mentioned he wants to tell them something. Sara is also in the room and previously asked the user to join. There was no conflict."
+
+Keep summary updated.
+
+Do not let old summaries contradict newer actual messages.
+
+Actual OCR messages are always the source of truth.
+
+==================================================
+14 — DUPLICATE CHAT DETECTION
+=============================
+
+Since the same messages stay visible on Avakin for multiple scans:
+
+Do NOT save the same message multiple times.
+
+Before adding a detected message to Live Chat Log compare:
+
+* player name
+* text
+* similarity
+* order
+* recent messages
+* screen position when available
+* OCR confidence
+
+If it already exists:
+
+do not add it again.
+
+==================================================
+15 — OCR CORRECTION MUST UPDATE CONTEXT
+=======================================
+
+If OCR originally reads:
+
+Ahmed:
+"وينح"
+
+and I manually correct it to:
+
+"وينج"
+
+Update the actual stored chat message.
+
+Future Gemini responses must use the corrected text.
+
+Do not keep using the wrong OCR version.
+
+==================================================
+16 — LIVE REPLY AREA
+====================
+
+The main AI Reply Area must continuously follow the live Avakin conversation.
+
+Every second:
+
+check the chat region.
+
+If there is no new relevant message:
+
+do not generate anything.
+
+If one or more NEW messages appear:
+
+1. save them to Live Chat Log
+2. identify the speakers
+3. update player contexts
+4. update global conversation context
+5. determine whether a response is useful
+6. if useful, send the relevant context to Gemini
+7. generate 3 appropriate replies
+8. add the new reply group to the Reply Carousel
+
+==================================================
+17 — GEMINI IS THE LIVE REPLY ENGINE
+====================================
+
+Use the existing:
+
+`GEMINI_API_KEY`
+
+for all AI conversation/reply generation.
+
+The application must use Gemini to understand:
+
+* what the new message means
+* who said it
+* who it is directed toward
+* what happened before
+* which player is focused
+* my personality
+* my dialect
+* current conversation tone
+* relationship context
+* whether a response is needed
+* what 3 responses are most appropriate
+
+==================================================
+18 — NEVER CALL GEMINI EVERY SECOND
+===================================
+
+CRITICAL COST/FREE-TIER REQUIREMENT:
+
+The SCREEN is checked approximately once every second.
+
+Gemini is NOT called once every second.
+
+Gemini is only called if:
+
+1. the chat region changed
+2. OCR detected genuinely new chat
+3. duplicate detection passed
+4. conversation context was updated
+5. there is something useful to respond to
+
+So the system behaves like:
+
+Every second
+→ check screen
+
+No new message
+→ no Gemini call
+
+New irrelevant room message
+→ save context
+→ normally no Gemini call
+
+New relevant message
+→ save context
+→ Gemini call
+→ 3 replies
+
+==================================================
+19 — REPLY AREA MUST ALWAYS REFRESH WITH NEW RELEVANT CONTEXT
+=============================================================
+
+Whenever a relevant new message appears:
+
+The newest reply group should be generated based on the UPDATED conversation.
+
+Do not generate using stale context.
+
+Example:
+
+Ahmed:
+"وينج"
+
+AI generates replies.
+
+Then:
+
+Ahmed:
+"لا خلاص حصلتج"
+
+The AI must understand that the earlier "وينج" situation is already resolved.
+
+Do not continue suggesting:
+
+"هني انا"
+
+Use the newest context.
+
+==================================================
+20 — IF SEVERAL MESSAGES APPEAR BEFORE GEMINI RESPONDS
+======================================================
+
+If Gemini is still processing and more chat arrives:
+
+Save the new chat immediately.
+
+Do not lose it.
+
+If the newer messages materially change the situation:
+
+cancel or mark the older generation as outdated.
+
+Generate responses using the latest complete relevant context.
+
+Example:
+
+Ahmed:
+"وينج"
+
+Before Gemini finishes:
+
+Ahmed:
+"اوكي شفتج"
+
+The old reply request may no longer be useful.
+
+Prefer the updated context.
+
+==================================================
+21 — REPLY CAROUSEL AND CHAT CONTEXT
+====================================
+
+Every Reply Carousel group must remain linked to the message/messages that caused it.
+
+For each ReplyGroup store:
+
+* reply group ID
+* source message IDs
+* target player
+* conversation context version
+* timestamp
+* 3 generated replies
+* styles
+* copied state
+* favorite state
+
+This allows old replies to remain historically correct even as the current conversation changes.
+
+==================================================
+22 — OLD REPLIES MUST NOT CHANGE
+================================
+
+Once a reply group is generated:
+
+Do not rewrite it later when context changes.
+
+Keep it as a historical suggestion for that moment.
+
+New context produces a NEW group.
+
+Example:
+
+Group 1:
+Ahmed: وينج
+
+Old three replies remain.
+
+Then Ahmed says something new.
+
+Create Group 2.
+
+Do not replace Group 1.
+
+==================================================
+23 — SAME LIVE PAGE
+===================
+
+Both of these should be accessible from the SAME Live Assistant screen:
+
+A) LIVE CHAT
+
+Actual detected Avakin messages.
+
+B) AI REPLIES
+
+The reply carousel.
+
+I do not want to leave the live screen just to see old replies or recent chat.
+
+==================================================
+24 — LIVE CHAT PANEL
+====================
+
+Create a clear live chat panel showing:
+
+Ahmed
+وينج
+
+Sara
+تعالي عندنا
+
+Me
+دقيقه
+
+Ahmed
+عندي سالفه
+
+New messages should appear automatically.
+
+Different players should be visually distinguishable by:
+
+* names
+* avatars/initial icons if useful
+* consistent subtle styling
+
+Do not make the UI overly colorful or confusing.
+
+==================================================
+25 — CLICK PLAYER NAME
+======================
+
+Clicking a player name should allow:
+
+* Focus on player
+* View their recent messages
+* View AI replies related to them
+* Set relationship context
+* Temporarily ignore reply generation from them
+
+==================================================
+26 — REPLY CAROUSEL CONTINUES WORKING
+=====================================
+
+Keep all previously requested carousel behavior:
+
+* 3 replies per relevant message
+* arrows to browse groups
+* old replies stay
+* newest replies are added
+* "آخر رد" button
+* "X ردود جديدة" badge
+* clicking reply copies it immediately
+* copied replies remain
+* filters by player
+* Focus player filter
+
+Do NOT replace the carousel with a single constantly-changing response box.
+
+==================================================
+27 — DO NOT FORCE ME TO THE NEWEST GROUP
+========================================
+
+If I am reading an older reply group:
+
+new chat can continue arriving.
+
+new Gemini replies can continue being generated.
+
+Do not automatically move me.
+
+Show:
+
+**X ردود جديدة**
+
+I choose when to jump to:
+
+**آخر رد**
+
+==================================================
+28 — IF I AM ALREADY ON THE LATEST GROUP
+========================================
+
+If I am currently viewing the newest replies:
+
+When a new relevant reply group arrives:
+
+automatically show the new group.
+
+This gives the live feeling I want.
+
+==================================================
+29 — FULL CONTEXT EXAMPLE
+=========================
+
+Suppose OCR captures:
+
+Ahmed:
+وينج
+
+Sara:
+تعالي عندنا
+
+Me:
+دقيقه
+
+Ahmed:
+عندي سالفه
+
+Sara:
+احمد لا تقول لها 😂
+
+Ahmed:
+بسكت
+
+The system should save ALL SIX messages.
+
+If Ahmed later says:
+
+"خلاص بقولج برايفت"
+
+Gemini should know:
+
+* Ahmed previously said he has something to say
+* Sara told him not to tell me
+* Ahmed said he would stay quiet
+* he now says he will tell me privately
+
+The generated replies should use this context naturally.
+
+This is exactly why ALL chat must be stored.
+
+==================================================
+30 — MULTI-PERSON CONTEXT EXAMPLE
+=================================
+
+Example:
+
+Ahmed:
+ساره قالت عنج شي
+
+Sara:
+كذاب
+
+Ahmed:
+والله قالت
+
+Me:
+وش قالت
+
+Gemini must understand:
+
+* Ahmed made the claim
+* Sara denied it
+* I asked Ahmed what Sara said
+
+It must not confuse Sara's denial as something I said.
+
+Speaker tracking is mandatory.
+
+==================================================
+31 — PLAYER-SPECIFIC MEMORY
+===========================
+
+For every player maintain something conceptually like:
+
+PlayerMemory {
+playerId
+displayName
+recentMessages
+recentMessagesToMe
+recentMessagesFromMe
+currentTopic
+relationshipContext
+unresolvedQuestions
+lastInteractionAt
+conflictState
+focused
+}
+
+==================================================
+32 — GLOBAL CONVERSATION STATE
+==============================
+
+Also maintain:
+
+GlobalConversationState {
+orderedMessages
+recentRelevantMessages
+currentRoomTopics
+focusedPlayerId
+conversationSummary
+currentConflicts
+unansweredDirectQuestions
+}
+
+==================================================
+33 — SOURCE OF TRUTH RULE
+=========================
+
+Highest priority source of truth:
+
+1. Actual OCR-detected Avakin chat
+2. User manual OCR corrections
+3. Session conversation summary
+4. AI interpretations
+5. Generated reply suggestions
+
+Generated replies must NEVER outrank real chat evidence.
+
+==================================================
+34 — GEMINI PROMPT CONTEXT
+==========================
+
+Every Gemini reply request should contain structured context similar to:
+
+MY SETTINGS:
+
+* dialect
+* dialect strength
+* personality
+* response style settings
+
+MY AVAKIN IDENTITY:
+
+* username
+
+FOCUSED PLAYER:
+
+* player name
+* relationship context
+* recent interaction summary
+
+RECENT ROOM CHAT:
+ordered list of relevant messages with speaker labels
+
+OLDER CONTEXT SUMMARY:
+compact summary
+
+NEW MESSAGE(S):
+exact newly detected message(s)
+
+TASK:
+decide whether a reply is useful and if yes generate exactly 3 natural replies
+
+==================================================
+35 — DO NOT REMOVE OTHER PLAYERS FROM GEMINI CONTEXT IF THEY MATTER
+===================================================================
+
+Even if Ahmed is focused:
+
+If Sara said something that changes what Ahmed's message means:
+
+include Sara's relevant line in Gemini context.
+
+Focus means priority.
+
+It does not mean tunnel vision.
+
+==================================================
+36 — CHAT MEMORY UI
+===================
+
+The user does not need to see technical memory internals.
+
+Show a simple clean chat timeline.
+
+Internally maintain the richer structured state.
+
+Do not display giant JSON/debug data in normal mode.
+
+==================================================
+37 — CHAT LOG AND REPLY HISTORY MUST SURVIVE NORMAL LIVE UPDATES
+================================================================
+
+Normal one-second refreshes must NOT reset React state or clear the page.
+
+Never rebuild the whole screen on each OCR cycle.
+
+Only append/update the necessary data.
+
+Do not cause:
+
+* flashing
+* scroll resets
+* lost replies
+* lost chat history
+* lost Focus selection
+* lost personality settings
+
+==================================================
+38 — PERSISTENCE
+================
+
+During the session:
+
+keep all actual detected messages and AI reply groups.
+
+Use IndexedDB or the existing local storage architecture for reliable session persistence.
+
+If the page accidentally refreshes:
+
+restore the active session when practical.
+
+Ask the user before permanently deleting a session.
+
+==================================================
+39 — FINAL REQUIRED LIVE LOOP
+=============================
+
+The exact desired behavior is:
+
+Start Live Assistant
+
+→ screen checked every second
+
+→ chat unchanged
+
+→ nothing happens
+
+→ new Avakin message appears
+
+→ OCR detects it
+
+→ speaker identified
+
+→ actual message saved permanently to current session log
+
+→ all player/global context updated
+
+→ duplicate detection confirms it is new
+
+→ system decides whether reply is useful
+
+→ Gemini receives the newest relevant context
+
+→ Gemini creates 3 natural replies
+
+→ new Reply Carousel group is added
+
+→ old replies remain
+
+→ live screen continues monitoring
+
+→ more chat arrives
+
+→ every actual chat message is saved
+
+→ context becomes smarter and more accurate
+
+→ new Gemini replies use the complete conversation context
+
+→ I can browse older reply groups using arrows
+
+→ clicking any reply copies it
+
+This behavior is mandatory.
+
+The application should feel like it is continuously WATCHING AND UNDERSTANDING THE FULL CHAT rather than reacting to isolated screenshots.

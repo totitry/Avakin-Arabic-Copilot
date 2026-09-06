@@ -25,19 +25,20 @@ An Arabic-first, privacy-focused conversation companion for Avakin Life that pre
 - `artifacts/avakin-copilot/src/App.tsx` — the local-first assistant experience, routes, and browser persistence.
 - `artifacts/avakin-copilot/src/index.css` — shared visual language and responsive layout styles.
 - `artifacts/avakin-copilot` — deployable React/Vite web app.
-- `artifacts/api-server` — shared API service scaffold, currently retained for future server-side OCR/LLM features.
+- `artifacts/api-server` — server-side Gemini proxy with validated, rate-limited reply generation.
 
 ## Architecture decisions
 
-- The first MVP is local-first: IndexedDB holds user-selected settings, personalities, favorites, reply history, and explicit saved sessions.
+- The first MVP is local-first: IndexedDB holds ordered full-room chat, speaker/player context, settings, personalities, immutable reply groups, favorites, and saved sessions.
 - Screen capture uses the browser's user-authorized `getDisplayMedia` flow; stopping the assistant cleans up tracks and temporary capture state.
 - OCR uses free client-side Tesseract.js behind an upgrade-ready boundary, and screen frames are compared locally before OCR runs.
-- Gemini generation uses only the server-side `GEMINI_API_KEY` and the requested Free Tier model; quota failures never trigger a paid fallback.
+- Gemini generation is explicitly opt-in and uses only cleaned text plus compact conversation context through the server-side `GEMINI_API_KEY`; screenshots never leave the browser and quota failures never trigger a paid fallback.
+- New chat or a manual OCR correction invalidates obsolete in-flight generations. Relevant current messages are processed sequentially without replacing historical reply groups.
 - Suggestions always end at copy-to-clipboard; the app never types or sends messages into Avakin.
 
 ## Product
 
-The app provides an RTL Arabic live assistant workspace, personality and dialect controls, manual and demo chat ingestion, focus and ignore controls for multiple players, conflict-aware reply modes, three distinct copyable suggestions, favorites, history, saved sessions, import/export, and privacy controls.
+The app provides an RTL Arabic live assistant workspace, personality and dialect controls, real OCR chat ingestion with an explicitly labeled manual fallback, focus and ignore controls for detected players, conflict-aware reply modes, Gemini-generated copyable suggestions, favorites, history, saved sessions, import/export, and privacy controls. Production starts with no chat, players, or replies until real input arrives.
 
 ## User preferences
 

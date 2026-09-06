@@ -6,6 +6,9 @@ const router: IRouter = Router();
 const MODEL = "gemini-3.7-flash";
 const QUOTA_MESSAGE = "خلص الحد المجاني للذكاء الاصطناعي حاليًا جرب مرة ثانية لاحقًا";
 const UNAVAILABLE_MESSAGE = "تعذر الوصول إلى الذكاء الاصطناعي حاليًا. ستبقى أدواتك المحلية متاحة.";
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_REQUESTS = 20;
+const requestBuckets = new Map<string, { count: number; resetAt: number }>();
 
 type GeminiCandidate = {
   content?: {
@@ -19,10 +22,24 @@ type GeminiResponse = {
 
 const normalizeReply = (value: unknown) =>
   typeof value === "string"
-    ? value.replace(/\s+/g, " ").trim()
+    ? value.replace(/\s+/g, " ").trim().slice(0, 500)
     : "";
 
 router.post("/gemini/generate-replies", async (req, res) => {
+  const key = req.ip || "unknown";
+  const currentTime = Date.now();
+  const existingBucket = requestBuckets.get(key);
+  const bucket = !existingBucket || existingBucket.resetAt <= currentTime
+    ? { count: 0, resetAt: currentTime + RATE_LIMIT_WINDOW_MS }
+    : existingBucket;
+  bucket.count += 1;
+  requestBuckets.set(key, bucket);
+  if (bucket.count > RATE_LIMIT_REQUESTS) {
+    res.setHeader("Retry-After", String(Math.ceil((bucket.resetAt - currentTime) / 1000)));
+    res.status(429).json({ error: QUOTA_MESSAGE });
+    return;
+  }
+
   const parsed = GenerateGeminiRepliesBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "بيانات الرسالة غير مكتملة." });
@@ -35,7 +52,19 @@ router.post("/gemini/generate-replies", async (req, res) => {
     return;
   }
 
-  const { message, recentMessages, dialect, dialectStrength, mode, personality } =
+  const {
+    message,
+    avakinUsername,
+    focusedPlayer,
+    globalSummary,
+    playerSummary,
+    recentMessages,
+    newMessages,
+    dialect,
+    dialectStrength,
+    mode,
+    personality,
+  } =
     parsed.data;
 
   const prompt = [
@@ -45,6 +74,8 @@ router.post("/gemini/generate-replies", async (req, res) => {
     "لا تستخدم شروحات أو عناوين أو علامات اقتباس داخل النص.",
     "لا ترسل أو تنفذ أي شيء داخل اللعبة. أعد JSON صالحاً فقط بالشكل {\"suggestions\":[{\"text\":\"...\",\"style\":\"متوازن\"},{\"text\":\"...\",\"style\":\"مباشر\"},{\"text\":\"...\",\"style\":\"خفيف\"}]}.",
     `اللهجة: ${dialect}، قوة اللهجة: ${dialectStrength}%، النمط: ${mode}.`,
+    `هوية المستخدم في Avakin: ${avakinUsername || "غير محددة"}.`,
+    `اللاعب المركّز: ${focusedPlayer || "لا يوجد"}.`,
     `الشخصية: ${JSON.stringify({
       name: personality.name,
       description: personality.description,
@@ -57,8 +88,11 @@ router.post("/gemini/generate-replies", async (req, res) => {
       preferredWords: personality.preferredWords.slice(0, 12),
       blockedWords: personality.blockedWords.slice(0, 12),
     })}`,
-    `السياق القريب: ${JSON.stringify(recentMessages.slice(-8))}`,
-    `الرسالة الجديدة: ${message}`,
+    `ملخص الغرفة الأقدم: ${globalSummary || "لا يوجد بعد"}.`,
+    `ملخص اللاعب المركّز: ${playerSummary || "لا يوجد بعد"}.`,
+    `المحادثة المرتبة الحديثة: ${JSON.stringify(recentMessages.slice(-30))}`,
+    `الرسائل الجديدة: ${JSON.stringify(newMessages.slice(-8))}`,
+    `الرسالة المستهدفة: ${message}`,
   ].join("\n");
 
   try {
@@ -114,7 +148,7 @@ router.post("/gemini/generate-replies", async (req, res) => {
     const uniqueTexts = new Set(suggestions.map((item) => item.text.toLocaleLowerCase()));
 
     if (suggestions.length !== 3 || uniqueTexts.size !== 3) {
-      res.status(502).json({ error: "وصل رد غير مكتمل من الذكاء الاصطناعي. بقيت الردود المحلية متاحة." });
+      res.status(502).json({ error: "وصل رد غير مكتمل من Gemini. تم حفظ المحادثة، لكن لم يتم إنشاء ردود لهذه الرسالة." });
       return;
     }
 

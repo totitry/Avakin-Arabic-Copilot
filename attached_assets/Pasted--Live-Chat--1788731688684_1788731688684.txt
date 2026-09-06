@@ -1,0 +1,687 @@
+إي فهمت قصدك تمامًا: مو بس قسم الردود يتفاعل، **كل الموقع نفسه يكون حي ومربوط بالـLive Chat**. يعني الأشخاص، الـFocus، التنبيهات، الهوشات، الملخص، ملفات اللاعبين، حالة العلاقة، وسجل الردود—كلها تتحدث تلقائيًا من الشات اللي يصوره.
+
+ارسلي له هذي الإضافة:
+
+# CRITICAL PRODUCT BEHAVIOR — THE ENTIRE WEBSITE MUST BE DRIVEN BY LIVE AVAKIN CHAT
+
+This is extremely important.
+
+The Live Avakin chat is NOT just one feature inside the website.
+
+The ENTIRE application must behave as a live reactive interface driven by the captured Avakin chat.
+
+Everything on the website should update automatically based on what is currently happening in the live chat.
+
+Do NOT build static pages that require me to manually refresh or manually enter conversation information during normal use.
+
+The live captured Avakin chat is the central data source of the entire application.
+
+==================================================
+1 — LIVE CHAT IS THE CORE OF THE WHOLE APP
+==========================================
+
+Once Live Avakin Assistant is started and the Avakin chat area is selected:
+
+The entire application should enter a LIVE state.
+
+Every approximately 1 second:
+
+* check the selected Avakin chat area
+* detect visual changes
+* run OCR only when needed
+* detect new messages
+* identify speakers
+* update conversation memory
+* update player profiles
+* update focus suggestions
+* update reply suggestions
+* update conflict detection
+* update notifications
+* update summaries
+* update unread/new-reply counters
+* update interaction statistics
+
+All relevant areas of the application must react to the live chat automatically.
+
+==================================================
+2 — NO MANUAL REFRESH
+=====================
+
+I should NEVER need to press:
+
+* Refresh
+* Analyze again
+* Update conversation
+* Rescan chat
+
+during normal Live Mode.
+
+The website should update automatically while Live Mode is active.
+
+Manual buttons may exist as fallback/debug tools only.
+
+==================================================
+3 — LIVE PLAYER LIST
+====================
+
+The player list must be generated from the captured live chat.
+
+If OCR detects a new player:
+
+Add that player automatically.
+
+If a player sends another message:
+
+Update:
+
+* last message
+* message count
+* last activity
+* interaction score
+* whether they mentioned me
+* whether they asked me something
+
+Do not require me to manually create player profiles.
+
+==================================================
+4 — PLAYER PROFILES UPDATE LIVE
+===============================
+
+Every player's session profile should update automatically from live chat.
+
+For example:
+
+Ahmed speaks again
+
+→ Ahmed profile updates automatically
+
+Sara asks me a question
+
+→ Sara profile shows an unanswered direct question
+
+Faisal becomes rude
+
+→ Faisal conflict state updates
+
+This should happen without manual action.
+
+==================================================
+5 — FOCUS MODE MUST USE LIVE CHAT
+=================================
+
+Focus Mode must be continuously connected to live chat.
+
+If I focus on Ahmed:
+
+Every new Ahmed message should immediately:
+
+* update Ahmed's context
+* appear in his timeline
+* influence Gemini replies
+* increase priority
+* update unanswered questions
+* update current topic
+
+If another player's message affects Ahmed's conversation:
+
+include that relevant message too.
+
+==================================================
+6 — SMART FOCUS SUGGESTIONS UPDATE LIVE
+=======================================
+
+The website should continuously observe interaction patterns.
+
+Examples:
+
+If Ahmed keeps talking to me:
+show:
+"أحمد شكله يكلمك وايد تبيني أركز عليه"
+
+If Ahmed stops interacting for a long time:
+lower his priority naturally.
+
+If another player starts talking to me repeatedly:
+the Focus suggestion may update.
+
+==================================================
+7 — LIVE REPLY PANEL
+====================
+
+The main reply panel must always react to the latest relevant chat.
+
+New relevant chat message:
+
+→ update context
+→ call Gemini
+→ create 3 replies
+→ add new reply group
+→ keep old reply groups
+
+Do not require me to press Generate after every incoming message.
+
+Generate automatically for relevant new chat.
+
+==================================================
+8 — LIVE REPLY CAROUSEL
+=======================
+
+The reply carousel must continuously receive new reply groups.
+
+Old reply groups remain available.
+
+New reply groups are appended.
+
+If I am on the latest group:
+show the new one automatically.
+
+If I am browsing an older group:
+do not move me
+show:
+"X ردود جديدة"
+
+The carousel must remain synchronized with the live conversation.
+
+==================================================
+9 — LIVE CONFLICT DETECTION
+===========================
+
+Conflict Mode must monitor the live chat automatically.
+
+If conversation tone changes from normal to hostile:
+
+show a live prompt such as:
+
+"واضح إن الموضوع بدأ يحتد كيف تبيني نرد"
+
+Options:
+
+* بارد
+* حازم
+* تأديب محترم
+* ساخر ذكي
+* تجاهل
+* إنهاء النقاش
+* حفظ ماء الوجه
+
+Do not require me to manually tell the app:
+"this is an argument"
+
+The system should detect it from context.
+
+==================================================
+10 — LIVE SOCIAL INTELLIGENCE
+=============================
+
+The assistant should actively understand changes in the conversation.
+
+Examples:
+
+"شكله يمزح"
+
+"هذا سؤال مباشر"
+
+"كرر نفس السؤال"
+
+"صار يتكلم مع شخص ثاني"
+
+"رجع يتكلم عن موضوع قديم"
+
+"واضح إنه مستفز"
+
+"ما يحتاج ترد هني"
+
+These insights must come automatically from live chat context.
+
+==================================================
+11 — LIVE NOTIFICATIONS
+=======================
+
+Useful notifications must appear automatically based on live chat.
+
+Examples:
+
+"أحمد ذكرك"
+
+"سارة سألتك سؤال"
+
+"فيصل رد عليك"
+
+"في 4 رسايل جديدة"
+
+"صار في نقاش حاد"
+
+"أحمد رجع يكلمك"
+
+Do not spam ordinary low-value notifications.
+
+==================================================
+12 — LIVE CHAT SUMMARY
+======================
+
+The summary feature should always use the actual current live conversation.
+
+If I press:
+
+"لخص الشات"
+
+it must summarize the latest captured chat state.
+
+Not old cached data.
+
+Also maintain a compact internal summary automatically as chat evolves.
+
+==================================================
+13 — LIVE UNANSWERED QUESTIONS
+==============================
+
+Maintain a live list of unanswered direct questions.
+
+If someone asks me:
+
+"وينج"
+
+Mark it as potentially unanswered.
+
+If OCR later detects that I replied:
+
+resolve it.
+
+If conversation makes the question irrelevant:
+
+resolve it automatically.
+
+==================================================
+14 — LIVE RELATIONSHIP CONTEXT
+==============================
+
+Manual relationship labels remain user-controlled.
+
+However interaction statistics should update live.
+
+For example:
+
+* recent interaction frequency
+* current conversation tone
+* repeated joking
+* repeated conflict
+* last interaction
+
+Do not permanently label someone as a friend/enemy automatically.
+
+==================================================
+15 — LIVE CHAT HISTORY
+======================
+
+The actual Avakin chat timeline must grow automatically.
+
+Every new real message:
+
+append it.
+
+Do not replace the timeline with only the latest few messages visually unless older messages remain accessible.
+
+==================================================
+16 — LIVE SOURCE OF TRUTH
+=========================
+
+The currently captured Avakin chat is the highest priority source of truth.
+
+Whenever live OCR detects new evidence:
+
+Update app state.
+
+Examples:
+
+Gemini thought Ahmed was talking to me
+
+but later chat makes it clear he was talking to Sara
+
+→ update interpretation.
+
+A generated reply was copied
+
+but OCR shows I actually sent something different
+
+→ use the real Avakin message.
+
+==================================================
+17 — LIVE UI STATE MUST NOT RESET
+=================================
+
+Each one-second scan must NOT reload the application.
+
+Do NOT reset:
+
+* selected personality
+* selected dialect
+* Focus player
+* reply carousel position
+* old replies
+* favorites
+* chat scroll position
+* player filters
+* current settings
+
+Use incremental state updates.
+
+==================================================
+18 — LIVE HEADER STATUS
+=======================
+
+The top of the application should show live state such as:
+
+🟢 Avakin Live
+آخر قراءة: الآن
+
+or similar.
+
+Update status automatically.
+
+If screen capture stops:
+
+immediately change to:
+
+🔴 غير متصل
+
+==================================================
+19 — LIVE CHAT ACTIVITY INDICATOR
+=================================
+
+When a new chat message is detected:
+
+show a subtle brief activity indicator.
+
+Example:
+
+"رسالة جديدة من أحمد"
+
+Do not use intrusive full-screen popups.
+
+==================================================
+20 — LIVE PLAYER ACTIVITY
+=========================
+
+Player list should reflect who is currently active.
+
+Examples:
+
+Ahmed
+آخر رسالة قبل ثانيتين
+
+Sara
+آخر رسالة قبل دقيقة
+
+This should update automatically.
+
+==================================================
+21 — LIVE GEMINI CONTEXT
+========================
+
+Every Gemini call must use the newest available context at that moment.
+
+Before calling Gemini:
+
+* update new messages
+* update player context
+* update global context
+* update Focus state
+* update conflict state
+* update actual user messages
+
+Then generate replies.
+
+Never call Gemini with stale context if newer chat has already been detected.
+
+==================================================
+22 — LIVE GEMINI REPLY GENERATION
+=================================
+
+Gemini should generate replies only when useful.
+
+The screen may be checked every second.
+
+Gemini should only run after genuinely new relevant chat is detected.
+
+So:
+
+1 second scan
+→ no new message
+→ no Gemini
+
+1 second scan
+→ new irrelevant background message
+→ save it
+→ no Gemini normally
+
+1 second scan
+→ new relevant message
+→ save it
+→ Gemini
+→ 3 replies
+
+==================================================
+23 — LIVE MULTI-PLAYER STATE
+============================
+
+The website must support a room where many people are speaking simultaneously.
+
+All participants update live.
+
+Maintain:
+
+* per-player context
+* global room context
+* Focus player context
+
+Do not collapse everybody into one speaker.
+
+==================================================
+24 — LIVE DASHBOARD BEHAVIOR
+============================
+
+The dashboard should feel alive.
+
+Example:
+
+Ahmed sends message
+
+→ Ahmed moves to top of active players
+→ his last message updates
+→ live chat updates
+→ direct-message detector updates
+→ Focus recommendation may update
+→ Gemini generates replies
+→ reply carousel gets a new group
+→ unread reply counter updates
+→ session activity updates
+
+All from ONE detected live chat message.
+
+==================================================
+25 — SETTINGS MUST IMMEDIATELY AFFECT LIVE OUTPUT
+=================================================
+
+If I change:
+
+* dialect
+* personality
+* humor
+* confidence
+* reply length
+* punctuation
+* emoji amount
+* Focus player
+
+the NEXT Gemini-generated replies should immediately use the new settings.
+
+No restart required.
+
+==================================================
+26 — PERSONALITY SWITCH WHILE LIVE
+==================================
+
+If I switch saved personality while Live Mode is running:
+
+do not stop OCR.
+
+do not clear chat.
+
+do not clear history.
+
+Simply use the new personality for future reply generations.
+
+Old replies remain historically unchanged.
+
+==================================================
+27 — DIALECT SWITCH WHILE LIVE
+==============================
+
+Same behavior for dialect.
+
+If I change from:
+
+إماراتي
+
+to:
+
+سعودي
+
+future generated replies use Saudi.
+
+Previous reply groups remain unchanged.
+
+==================================================
+28 — LIVE MODE MUST CONTINUE WHILE I BROWSE THE SITE
+====================================================
+
+If I open:
+
+* a player profile
+* old reply carousel group
+* Favorites
+* settings drawer
+
+the Live Assistant should continue monitoring if technically possible within the same active page/app session.
+
+Do not pause live analysis merely because I opened a panel.
+
+==================================================
+29 — NO FAKE LIVE UI
+====================
+
+Do not create fake timestamps or simulated messages.
+
+All Live Mode information must originate from:
+
+* real captured screen OCR
+* actual user actions
+* Gemini analysis of real captured conversation
+
+No fake demo data in production mode.
+
+==================================================
+30 — ALL MAJOR COMPONENTS MUST SUBSCRIBE TO LIVE STATE
+======================================================
+
+Architect the application with a central live conversation state/store.
+
+Conceptually:
+
+LiveCaptureState
+↓
+OCRMessageStore
+↓
+ConversationState
+↓
+PlayerState
+↓
+FocusState
+↓
+ConflictState
+↓
+GeminiReplyState
+↓
+UI
+
+Major UI components should subscribe to this shared state.
+
+Do not create disconnected components that each maintain incompatible copies of the conversation.
+
+==================================================
+31 — CENTRAL EVENT PIPELINE
+===========================
+
+Implement an event-driven pipeline.
+
+Example events:
+
+CHAT_FRAME_CHANGED
+
+OCR_COMPLETED
+
+NEW_MESSAGE_DETECTED
+
+PLAYER_UPDATED
+
+DIRECT_MESSAGE_DETECTED
+
+FOCUS_CONTEXT_UPDATED
+
+CONFLICT_DETECTED
+
+REPLY_REQUEST_STARTED
+
+REPLIES_GENERATED
+
+REPLY_COPIED
+
+SESSION_SUMMARY_UPDATED
+
+This keeps the entire application synchronized.
+
+==================================================
+32 — FINAL EXPERIENCE
+=====================
+
+The experience I want is:
+
+I start Live Mode once
+
+and then the entire website follows what happens in Avakin automatically.
+
+If someone talks:
+the website knows.
+
+If a new player appears:
+the website adds them.
+
+If someone talks to me:
+the website prioritizes them.
+
+If someone keeps talking to me:
+the website can suggest Focus.
+
+If an argument starts:
+the website notices.
+
+If the topic changes:
+the website updates context.
+
+If I reply:
+the website sees my real reply from Avakin.
+
+If a new relevant message arrives:
+Gemini automatically creates 3 new replies.
+
+Old replies stay available.
+
+Everything must remain synchronized with the live Avakin chat.
+
+The user should feel:
+
+"الموقع قاعد يتابع الشات معي لحظة بلحظة"
+
+This is a NON-NEGOTIABLE core product behavior.
+
+بهذي الإضافة يفهم إن **اللايف شات هو قلب الموقع كله** مو مجرد مربع OCR يعطي رد وخلاص. كل حدث بالشات يغير الموقع مباشرة حسب اللي صار.
