@@ -69,6 +69,48 @@ function cropLabel(crop: Crop) {
   return `${Math.round(crop.x * 100)}%, ${Math.round(crop.y * 100)}% · ${Math.round(crop.width * 100)}% × ${Math.round(crop.height * 100)}%`;
 }
 
+const FRAME_SIGNATURE_COLUMNS = 32;
+const FRAME_SIGNATURE_ROWS = 18;
+const FRAME_CHANGE_THRESHOLD = 7;
+const FRAME_CHANGED_CELL_THRESHOLD = 3;
+type FrameSignature = number[];
+
+function createFrameSignature(context: CanvasRenderingContext2D, width: number, height: number): FrameSignature {
+  const pixels = context.getImageData(0, 0, width, height).data;
+  const signature: FrameSignature = [];
+  for (let row = 0; row < FRAME_SIGNATURE_ROWS; row += 1) {
+    const startY = Math.floor(row * height / FRAME_SIGNATURE_ROWS);
+    const endY = Math.max(startY + 1, Math.floor((row + 1) * height / FRAME_SIGNATURE_ROWS));
+    for (let column = 0; column < FRAME_SIGNATURE_COLUMNS; column += 1) {
+      const startX = Math.floor(column * width / FRAME_SIGNATURE_COLUMNS);
+      const endX = Math.max(startX + 1, Math.floor((column + 1) * width / FRAME_SIGNATURE_COLUMNS));
+      let luminance = 0;
+      let count = 0;
+      for (let y = startY; y < Math.min(endY, height); y += 1) {
+        for (let x = startX; x < Math.min(endX, width); x += 1) {
+          const offset = (y * width + x) * 4;
+          luminance += pixels[offset] * 0.299 + pixels[offset + 1] * 0.587 + pixels[offset + 2] * 0.114;
+          count += 1;
+        }
+      }
+      signature.push(count ? luminance / count : 0);
+    }
+  }
+  return signature;
+}
+
+function frameDifference(previous: FrameSignature | null, current: FrameSignature) {
+  if (!previous || previous.length !== current.length) return { average: Number.POSITIVE_INFINITY, changedCells: current.length };
+  let total = 0;
+  let changedCells = 0;
+  current.forEach((value, index) => {
+    const difference = Math.abs(value - previous[index]);
+    total += difference;
+    if (difference >= FRAME_CHANGE_THRESHOLD) changedCells += 1;
+  });
+  return { average: total / current.length, changedCells };
+}
+
 const uid = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
 const now = () => new Date().toISOString();
 const ago = (minutes: number) => new Date(Date.now() - minutes * 60000).toISOString();
@@ -322,8 +364,7 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
   const streamRef = useRef<MediaStream | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const lastFrameSignature = useRef<number | null>(null);
-  const lastOcrAt = useRef(0);
+  const lastFrameSignature = useRef<FrameSignature | null>(null);
   const frameBusy = useRef(false);
   const aiAbortRef = useRef<AbortController | null>(null);
   const ocrWorkerRef = useRef<{ recognize: (image: Blob | HTMLCanvasElement) => Promise<{ data: { text: string } }>; terminate: () => Promise<unknown> } | null>(null);
@@ -495,7 +536,7 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
     const context = canvas.getContext('2d', { willReadFrequently: true });
     if (!context) return;
     const timer = window.setInterval(async () => {
-      if (frameBusy.current || video.readyState < 2 || Date.now() - lastOcrAt.current < 1500) return;
+      if (frameBusy.current || video.readyState < 2) return;
       canvas.width = 640;
        const sourceWidth = video.videoWidth || 640;
        const sourceHeight = video.videoHeight || 360;
@@ -505,21 +546,18 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
        const sourceCropHeight = Math.min(sourceHeight - sourceY, Math.max(1, Math.round(sourceHeight * chatCrop.height)));
        canvas.height = Math.max(1, Math.round(canvas.width * sourceCropHeight / sourceCropWidth));
        context.drawImage(video, sourceX, sourceY, sourceCropWidth, sourceCropHeight, 0, 0, canvas.width, canvas.height);
-       const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-      let signature = 0;
-      for (let index = 0; index < pixels.length; index += 32) signature += pixels[index] + pixels[index + 1] + pixels[index + 2];
-      const previous = lastFrameSignature.current;
+      const signature = createFrameSignature(context, canvas.width, canvas.height);
+      const difference = frameDifference(lastFrameSignature.current, signature);
       lastFrameSignature.current = signature;
-      if (previous !== null && Math.abs(signature - previous) < 1800) {
+      if (difference.average < FRAME_CHANGE_THRESHOLD || difference.changedCells < FRAME_CHANGED_CELL_THRESHOLD) {
         setOcrState('watching');
         return;
       }
-      lastOcrAt.current = Date.now();
       const text = await ocrRef.current(canvas);
       if (!text) return;
       const accepted = addMessageRef.current(text, focusedId, 'screen');
       if (accepted) void requestAiRef.current(accepted);
-    }, 1600);
+    }, 1000);
     return () => window.clearInterval(timer);
    }, [captureState, calibrated, chatCrop, focusedId]);
   useEffect(() => () => {

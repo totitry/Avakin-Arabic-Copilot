@@ -1,0 +1,616 @@
+# IMPORTANT LIVE 1-SECOND CHAT MONITORING + REPLY CAROUSEL UPDATE
+
+Merge all requirements below into the existing application.
+
+Do NOT remove, replace or simplify any previous feature.
+
+This requirement changes how the live chat monitoring and reply display should work.
+
+==================================================
+1 — CHECK AVAKIN CHAT EVERY SECOND
+==================================
+
+While Live Avakin Assistant is active and screen sharing is connected:
+
+The application must check the selected Avakin chat region continuously approximately once every:
+
+**1 second**
+
+The live loop should conceptually work like:
+
+Every 1 second
+→ capture the current selected chat region
+→ compare it with the previous chat region
+→ check whether anything meaningful changed
+→ if nothing changed, do nothing
+→ if something changed, run OCR
+→ compare OCR result with existing conversation history
+→ detect only genuinely NEW messages
+→ add the new messages to the live conversation
+→ analyze their context
+→ generate reply suggestions for relevant new messages
+
+IMPORTANT:
+
+Checking every second does NOT mean sending an AI request every second.
+
+The application should only call Gemini when a genuinely new relevant chat message has been detected.
+
+This prevents wasting Free Tier API requests.
+
+==================================================
+2 — ALWAYS KEEP THE LIVE MONITOR RUNNING
+========================================
+
+The monitoring loop must continue while Live Mode is enabled.
+
+It must NOT pause because:
+
+* I have not selected a reply yet
+* I am reading an older reply
+* I am editing a reply
+* I am focused on another player
+* several reply groups already exist
+* I have been inactive for several minutes
+
+Example:
+
+12:01:01
+Ahmed sends a message
+
+→ generate 3 replies
+
+12:01:05
+I still did not choose anything
+
+12:01:07
+Sara sends a new message
+
+→ generate 3 new replies for Sara
+
+12:01:12
+Ahmed sends another message
+
+→ generate another relevant set
+
+All previous reply groups must still exist.
+
+Never wait for me before continuing.
+
+==================================================
+3 — NEVER REPLACE OLD REPLIES
+=============================
+
+CRITICAL:
+
+When new AI replies are generated:
+
+DO NOT replace the previous reply suggestions.
+
+DO NOT clear the current reply panel.
+
+DO NOT hide old suggestions permanently.
+
+DO NOT overwrite previous replies.
+
+Every generated reply group must remain available in the SAME Live Assistant page.
+
+==================================================
+4 — REPLY CAROUSEL
+==================
+
+I want the main reply area to behave like a carousel / slider.
+
+The newest reply group should normally be shown first/currently selected.
+
+Add:
+
+← Previous
+
+and
+
+Next →
+
+navigation arrows.
+
+Because the primary interface is Arabic RTL, make sure the direction and icons feel natural in the Arabic interface.
+
+The user should be able to press the left/right arrows to move between reply groups.
+
+Each carousel page represents one detected incoming message or one grouped incoming conversation.
+
+Example:
+
+[ Ahmed — وينج ما تردين ]
+
+1. هني والله بس كنت مشغوله شوي
+
+2. دقيقه اختفيت وقمت تدورني 😭
+
+3. هني انا قول شو عندك
+
+Then I press an arrow.
+
+I can see the previous/next message group and its three generated replies.
+
+==================================================
+5 — CAROUSEL COUNTER
+====================
+
+Show a small counter such as:
+
+**5 / 18**
+
+Meaning:
+
+I am currently looking at reply group 5 out of 18 groups.
+
+Or in Arabic:
+
+**5 من 18**
+
+This makes it easy to know how many previous reply groups exist.
+
+==================================================
+6 — NEW REPLIES WHILE VIEWING OLD ONES
+======================================
+
+This is extremely important.
+
+If I am currently viewing an old reply group and a new Avakin message arrives:
+
+DO NOT automatically move me away from the old reply I am reading.
+
+Continue live monitoring in the background.
+
+Generate the new replies.
+
+Add the new group to the carousel.
+
+Show a badge such as:
+
+**3 ردود جديدة**
+
+or:
+
+**رد جديد**
+
+Include a button:
+
+**روح لآخر رد**
+
+Only jump to the newest reply if I press that button.
+
+==================================================
+7 — NEWEST REPLY MODE
+=====================
+
+If I am already viewing the newest reply group:
+
+When a new relevant message arrives:
+
+Automatically show its new reply group.
+
+This creates a natural live experience.
+
+But if I manually moved backwards in history:
+
+Respect my position and do NOT force me to the newest card.
+
+==================================================
+8 — EACH MESSAGE GROUP MUST STAY SEPARATE
+=========================================
+
+Each reply group must preserve:
+
+* detected player name
+* detected original message
+* time detected
+* conversation context
+* generated replies
+* reply styles
+* copied state
+* favorite state
+
+Example:
+
+GROUP 12
+
+Ahmed
+
+Original:
+"وينج"
+
+Detected:
+1:32:05 AM
+
+Suggestions:
+
+Natural
+"هني انا"
+
+Funny
+"دقيقه اختفيت وقمت تدورني 😭"
+
+Casual
+"موجوده قول"
+
+==================================================
+9 — CLICKING A REPLY STILL COPIES IT
+====================================
+
+Inside every old or new carousel group:
+
+Clicking any reply card must immediately copy its text.
+
+Show:
+
+**تم النسخ**
+
+Do not navigate away.
+
+Do not remove the reply.
+
+Do not close the carousel.
+
+I should be able to go back to that reply later.
+
+==================================================
+10 — SWIPE SUPPORT
+==================
+
+In addition to arrow buttons:
+
+Support swipe navigation where practical.
+
+For example on a touch screen:
+
+Swipe horizontally between reply groups.
+
+But arrows must always remain available.
+
+Do not make swipe the only way to navigate.
+
+==================================================
+11 — KEYBOARD SUPPORT
+=====================
+
+When focus is inside the reply carousel and not inside a text input:
+
+Allow optional keyboard navigation:
+
+Left arrow / Right arrow
+
+to navigate previous/next reply groups.
+
+Do not intercept keyboard input while I am editing text.
+
+==================================================
+12 — LATEST BUTTON
+==================
+
+Always provide a clearly visible:
+
+**آخر رد**
+
+button.
+
+If I moved back through older replies:
+
+clicking this button instantly returns me to the latest generated reply group.
+
+==================================================
+13 — PLAYER FILTER
+==================
+
+Allow me to filter the carousel:
+
+**الكل**
+
+or a specific player.
+
+Example:
+
+الكل
+Ahmed
+Sara
+Faisal
+
+If I select Ahmed:
+
+The carousel should show only reply groups related to Ahmed.
+
+Do not delete the other groups.
+
+They simply become hidden by the filter.
+
+==================================================
+14 — FOCUS PLAYER CAROUSEL
+==========================
+
+If Focus Mode is active on Ahmed:
+
+Provide an easy filter:
+
+**ردود أحمد فقط**
+
+This should show the history of my conversation/reply suggestions with the focused player.
+
+==================================================
+15 — DO NOT GENERATE AGAIN FOR THE SAME MESSAGE
+===============================================
+
+Because the system scans every second:
+
+It must be extremely careful not to generate replies repeatedly for the same visible Avakin message.
+
+Example:
+
+Ahmed:
+"وينج"
+
+The message stays visible on screen for 10 seconds.
+
+The system checks:
+
+second 1
+second 2
+second 3
+second 4
+...
+
+It must generate replies only ONCE for that message.
+
+Use:
+
+* OCR text
+* player name
+* message ordering
+* similarity
+* recent message IDs/hash
+* chat position
+
+to detect duplicates.
+
+==================================================
+16 — IF OCR CHANGES SLIGHTLY
+============================
+
+OCR may read the same message differently on two scans.
+
+Example:
+
+First scan:
+"وينج"
+
+Next scan:
+"وينح"
+
+Do NOT automatically assume this is a new message.
+
+Use fuzzy similarity and recent context.
+
+Only create a new reply group when reasonably confident that a genuinely new Avakin message appeared.
+
+==================================================
+17 — SMART 1-SECOND LOOP
+========================
+
+The final loop should behave like this:
+
+Every 1000ms:
+
+1. Check whether Live Mode is active
+2. Read current chat-region frame
+3. Compare with previous frame
+4. If visually unchanged:
+   STOP THIS ITERATION
+5. If changed:
+   OCR current chat
+6. Parse detected players/messages
+7. Compare against known messages
+8. Remove duplicates
+9. Find genuinely new messages
+10. Store new messages
+11. Determine relevance
+12. Update player context
+13. Update conversation context
+14. If relevant:
+    request Gemini response
+15. Generate 3 replies
+16. Add a NEW reply group to the carousel
+17. Keep ALL previous groups
+18. Update new-reply badge
+19. Continue monitoring next second
+
+==================================================
+18 — GEMINI FREE TIER OPTIMIZATION
+==================================
+
+Although screen/chat checking occurs every second:
+
+Gemini must NOT be called every second.
+
+Gemini should only be called after:
+
+* visual change occurred
+* OCR detected new text
+* duplicate detection passed
+* message is relevant enough to reply to
+
+This is mandatory to protect Free Tier quota.
+
+==================================================
+19 — MULTIPLE NEW MESSAGES IN ONE SECOND
+========================================
+
+If one scan detects multiple new messages:
+
+Analyze them intelligently.
+
+If they are consecutive messages from the SAME player forming one thought:
+
+They may be grouped.
+
+Example:
+
+Ahmed:
+وينج
+تعالي
+عندي سالفه
+
+Generate one useful reply group based on all three.
+
+If they are from DIFFERENT players:
+
+Maintain their identity separately.
+
+Create reply groups for the relevant players/messages.
+
+==================================================
+20 — DO NOT LOSE REPLIES IF AI IS BUSY
+======================================
+
+If Gemini is still generating responses for one message and another message arrives:
+
+Do not lose the second message.
+
+Add it to a processing queue.
+
+Prioritize:
+
+1. Focused player
+2. direct message to me
+3. my name mentioned
+4. direct question
+5. conflict
+6. other relevant messages
+
+But preserve all meaningful new messages.
+
+==================================================
+21 — PROCESSING INDICATOR
+=========================
+
+If a message was detected but Gemini is still creating replies:
+
+Show a small temporary group/status:
+
+**جاري تجهيز الردود**
+
+with:
+
+* player
+* original message
+
+When replies are ready:
+
+replace only that temporary loading state with the actual three replies.
+
+Do not affect older reply groups.
+
+==================================================
+22 — CAROUSEL DESIGN
+====================
+
+The reply carousel is one of the MOST important parts of the UI.
+
+Make it large and easy to use.
+
+Suggested structure:
+
+[ Player name ]       [ Time ]
+
+Original Avakin message
+
+────────────────────
+
+Reply 1
+[ full clickable response card ]
+
+Reply 2
+[ full clickable response card ]
+
+Reply 3
+[ full clickable response card ]
+
+────────────────────
+
+←      7 من 23      →
+
+[ آخر رد ]
+
+Do not bury the carousel inside another complicated menu.
+
+==================================================
+23 — DO NOT HIDE OLD CONTENT BEHIND ANOTHER PAGE
+================================================
+
+I specifically want old replies available on the SAME live page.
+
+Do NOT require opening a separate History page just to view old suggestions.
+
+A separate full History page may still exist as an additional feature.
+
+But the Live Assistant page itself must allow me to move through all current-session reply groups using arrows.
+
+==================================================
+24 — CURRENT SESSION HISTORY
+============================
+
+The carousel represents all current-session relevant reply groups.
+
+The full session history should remain in memory/storage until:
+
+* I manually clear it
+* or intentionally start a new session and choose to reset
+
+==================================================
+25 — FINAL REQUIRED EXPERIENCE
+==============================
+
+I want the experience to feel exactly like this:
+
+I start Avakin Live Assistant
+
+→ every second the application checks the chat area
+
+→ nothing new appears
+
+→ no Gemini request
+
+→ a new message appears
+
+→ OCR detects it
+
+→ AI generates 3 replies
+
+→ the replies appear
+
+→ I do not choose anything
+
+→ one second later monitoring continues
+
+→ another player sends something
+
+→ another set of replies is generated
+
+→ the first replies do NOT disappear
+
+→ I can press arrows to go backwards
+
+→ I can see the old message and its old three replies
+
+→ new messages continue being monitored while I browse old replies
+
+→ a badge tells me new replies arrived
+
+→ I press "آخر رد" whenever I want to return to the newest group
+
+→ clicking any reply instantly copies it
+
+This behavior is NON-NEGOTIABLE.
+
+Do not implement a reply box that simply replaces its content whenever a new message arrives.
+
+Use persistent reply groups with carousel navigation.
