@@ -83,8 +83,11 @@ function cropLabel(crop: Crop) {
 
 const FRAME_SIGNATURE_COLUMNS = 32;
 const FRAME_SIGNATURE_ROWS = 18;
-const FRAME_CHANGE_THRESHOLD = 7;
+const BASE_FRAME_CHANGE_THRESHOLD = 7;
 const FRAME_CHANGED_CELL_THRESHOLD = 3;
+const MIN_FRAME_THRESHOLD_SCALE = 0.35;
+const MAX_FRAME_THRESHOLD_SCALE = 2.5;
+const OCR_COOLDOWN_MS = 1500;
 type FrameSignature = number[];
 
 function createFrameSignature(context: CanvasRenderingContext2D, width: number, height: number): FrameSignature {
@@ -111,14 +114,30 @@ function createFrameSignature(context: CanvasRenderingContext2D, width: number, 
   return signature;
 }
 
-function frameDifference(previous: FrameSignature | null, current: FrameSignature) {
+function frameDifferenceThreshold(crop: Crop): number {
+  const defaultArea = DEFAULT_CHAT_CROP.width * DEFAULT_CHAT_CROP.height;
+  const selectedArea = crop.width * crop.height;
+  const areaScale = selectedArea / defaultArea;
+  const boundedScale = Math.min(MAX_FRAME_THRESHOLD_SCALE, Math.max(MIN_FRAME_THRESHOLD_SCALE, areaScale));
+  return BASE_FRAME_CHANGE_THRESHOLD * boundedScale;
+}
+
+function frameChangedCellThreshold(crop: Crop): number {
+  const defaultArea = DEFAULT_CHAT_CROP.width * DEFAULT_CHAT_CROP.height;
+  const selectedArea = crop.width * crop.height;
+  const areaScale = selectedArea / defaultArea;
+  const boundedScale = Math.min(MAX_FRAME_THRESHOLD_SCALE, Math.max(MIN_FRAME_THRESHOLD_SCALE, areaScale));
+  return Math.max(1, Math.round(FRAME_CHANGED_CELL_THRESHOLD * boundedScale));
+}
+
+function frameDifference(previous: FrameSignature | null, current: FrameSignature, changeThreshold: number) {
   if (!previous || previous.length !== current.length) return { average: Number.POSITIVE_INFINITY, changedCells: current.length };
   let total = 0;
   let changedCells = 0;
   current.forEach((value, index) => {
     const difference = Math.abs(value - previous[index]);
     total += difference;
-    if (difference >= FRAME_CHANGE_THRESHOLD) changedCells += 1;
+    if (difference >= changeThreshold) changedCells += 1;
   });
   return { average: total / current.length, changedCells };
 }
@@ -542,6 +561,7 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const lastFrameSignature = useRef<FrameSignature | null>(null);
+  const lastOcrAt = useRef(0);
   const frameBusy = useRef(false);
   const aiAbortRef = useRef<AbortController | null>(null);
   const ocrWorkerRef = useRef<{ recognize: (image: Blob | HTMLCanvasElement) => Promise<{ data: { text: string; confidence?: number } }>; terminate: () => Promise<unknown> } | null>(null);
@@ -825,8 +845,11 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
     if (!video || !canvas) return;
     const context = canvas.getContext('2d', { willReadFrequently: true });
     if (!context) return;
+    lastFrameSignature.current = null;
+    const changeThreshold = frameDifferenceThreshold(chatCrop);
+    const changedCellThreshold = frameChangedCellThreshold(chatCrop);
     const timer = window.setInterval(async () => {
-      if (frameBusy.current || video.readyState < 2) return;
+      if (frameBusy.current || video.readyState < 2 || Date.now() - lastOcrAt.current < OCR_COOLDOWN_MS) return;
       canvas.width = 640;
        const sourceWidth = video.videoWidth || 640;
        const sourceHeight = video.videoHeight || 360;
@@ -837,12 +860,13 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
        canvas.height = Math.max(1, Math.round(canvas.width * sourceCropHeight / sourceCropWidth));
        context.drawImage(video, sourceX, sourceY, sourceCropWidth, sourceCropHeight, 0, 0, canvas.width, canvas.height);
       const signature = createFrameSignature(context, canvas.width, canvas.height);
-      const difference = frameDifference(lastFrameSignature.current, signature);
+      const difference = frameDifference(lastFrameSignature.current, signature, changeThreshold);
       lastFrameSignature.current = signature;
-      if (difference.average < FRAME_CHANGE_THRESHOLD || difference.changedCells < FRAME_CHANGED_CELL_THRESHOLD) {
+      if (difference.average < changeThreshold || difference.changedCells < changedCellThreshold) {
         setOcrState('watching');
         return;
       }
+      lastOcrAt.current = Date.now();
       const result = await ocrRef.current(canvas);
       if (!result) return;
       const detected = parseDetectedMessages(result.rawText, playersRef.current, preferences.avakinUsername ?? '', focusedPlayer?.name ?? 'غير معروف')
