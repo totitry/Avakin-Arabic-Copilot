@@ -96,6 +96,19 @@ export interface GenerateRepliesInput {
   recentMessages: ChatContextMessage[];
   /** @maxItems 8 */
   newMessages: ChatContextMessage[];
+  /**
+     * JPEG or PNG data URL containing only the cropped chat region.
+     * @maxLength 400000
+     * @pattern ^data:image/(jpeg|png);base64,[A-Za-z0-9+/]*={0,2}$
+     */
+  cropImageDataUrl?: string;
+  /** @maxLength 6000 */
+  localOcrText?: string;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  localOcrConfidence?: number;
   /** @maxLength 40 */
   dialect: string;
   /**
@@ -121,12 +134,35 @@ export interface ReplySuggestion {
   style: ReplySuggestionStyle;
 }
 
+export interface DetectedChatMessage {
+  /**
+     * @minLength 1
+     * @maxLength 64
+     */
+  speaker: string;
+  /**
+     * @minLength 1
+     * @maxLength 1000
+     */
+  text: string;
+  isNew: boolean;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  confidence: number;
+}
+
 export interface GenerateRepliesResponse {
   /**
      * @minItems 3
      * @maxItems 3
      */
   suggestions: ReplySuggestion[];
+  /** @maxItems 30 */
+  detectedMessages?: DetectedChatMessage[];
+  /** @maxLength 64 */
+  targetPlayer?: string;
 }
 
 export interface ApiError {

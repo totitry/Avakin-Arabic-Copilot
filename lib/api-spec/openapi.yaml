@@ -156,6 +156,18 @@ components:
           items:
             $ref: "#/components/schemas/ChatContextMessage"
           maxItems: 8
+        cropImageDataUrl:
+          type: string
+          description: JPEG or PNG data URL containing only the cropped chat region.
+          pattern: "^data:image/(jpeg|png);base64,[A-Za-z0-9+/]*={0,2}$"
+          maxLength: 400000
+        localOcrText:
+          type: string
+          maxLength: 6000
+        localOcrConfidence:
+          type: number
+          minimum: 0
+          maximum: 1
         dialect:
           type: string
           maxLength: 40
@@ -232,8 +244,38 @@ components:
           maxItems: 3
           items:
             $ref: "#/components/schemas/ReplySuggestion"
+        detectedMessages:
+          type: array
+          maxItems: 30
+          items:
+            $ref: "#/components/schemas/DetectedChatMessage"
+        targetPlayer:
+          type: string
+          maxLength: 64
       required:
         - suggestions
+    DetectedChatMessage:
+      type: object
+      properties:
+        speaker:
+          type: string
+          minLength: 1
+          maxLength: 64
+        text:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        isNew:
+          type: boolean
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+      required:
+        - speaker
+        - text
+        - isNew
+        - confidence
     ApiError:
       type: object
       properties:

@@ -1,0 +1,951 @@
+# CRITICAL BUG FIX — LIVE REPLIES ARE NOT UPDATING + ARABIC OCR IS WRONG
+
+The current implementation is NOT behaving correctly.
+
+Do not redesign the website.
+
+Do not create another mockup.
+
+Fix the ACTUAL working Live Assistant pipeline.
+
+There are currently two major bugs:
+
+1. The Live Conversation replies are not automatically updating when new Avakin chat is detected
+2. Arabic OCR is producing incorrect/gibberish Arabic text
+
+Both must be fixed and tested using the REAL live screen capture flow
+
+==================================================
+A — LIVE REPLIES MUST UPDATE AUTOMATICALLY
+==========================================
+
+The Live Assistant must continuously monitor the selected Avakin chat region
+
+Use an active monitoring loop approximately every:
+
+1000 milliseconds
+
+The application must NOT scan only once
+
+It must continue while Live Mode is active
+
+Required flow:
+
+every 1 second
+
+→ capture current Avakin chat crop
+
+→ compare it with previous crop
+
+→ if nothing changed
+do nothing
+
+→ if something changed
+run OCR
+
+→ extract all visible chat messages
+
+→ compare them with messages already stored
+
+→ identify genuinely NEW messages
+
+→ identify which player said each message
+
+→ save all new messages into the real Live Chat Log
+
+→ update conversation context
+
+→ identify the newest relevant message
+
+→ automatically call Gemini
+
+→ automatically generate 3 reply suggestions
+
+→ automatically add the new reply group to the live reply carousel
+
+→ continue monitoring
+
+I should NOT have to press:
+
+Generate
+
+Analyze
+
+Refresh
+
+Rescan
+
+or any other button
+
+for normal live replies
+
+==================================================
+B — ALWAYS REPLY TO THE LATEST RELEVANT MESSAGE
+===============================================
+
+When new Avakin messages are detected:
+
+The AI reply panel must use the LATEST relevant message and the newest conversation context
+
+Example:
+
+Ahmed:
+وينج
+
+The site generates replies
+
+Then Ahmed says:
+
+لقيتج خلاص
+
+The site must NOT keep suggesting:
+
+هني انا
+
+It must understand the new message changed the situation
+
+The newest real Avakin chat must always update the context BEFORE calling Gemini
+
+==================================================
+C — IF MULTIPLE MESSAGES ARRIVE
+===============================
+
+If several messages appear between scans:
+
+Save ALL of them
+
+Keep their correct order
+
+Keep their speakers
+
+Then determine the newest useful conversational context
+
+Example:
+
+Ahmed:
+وينج
+
+Ahmed:
+تعالي عندي
+
+Ahmed:
+ابي اقولج شي
+
+These can be treated as one current conversational turn
+
+Gemini should receive all three lines and generate replies based on the complete thought
+
+==================================================
+D — GEMINI MUST GENERATE EVERY FINAL REPLY
+==========================================
+
+CRITICAL:
+
+Every AI-generated reply displayed to me must come from the Gemini API already connected through:
+
+GEMINI_API_KEY
+
+Do NOT use:
+
+* fake replies
+* hard-coded replies
+* local templates
+* placeholder replies
+* random predefined replies
+* mock AI output
+
+The only final conversational reply generator is Gemini
+
+Local code may:
+
+* detect messages
+* classify basic changes
+* deduplicate text
+* manage history
+
+But the actual three suggested chat replies must come from Gemini
+
+==================================================
+E — NO MANUAL GENERATE BUTTON REQUIRED
+======================================
+
+A manual Generate More button can still exist
+
+But NORMAL generation must be automatic
+
+New relevant live message detected
+
+=
+
+Gemini automatically generates replies
+
+I should be able to simply play Avakin while the reply area updates by itself
+
+==================================================
+F — LIVE GEMINI STATUS
+======================
+
+Show useful states in the reply panel:
+
+When new message detected:
+
+"تم اكتشاف رسالة جديدة"
+
+While Gemini is working:
+
+"جاري تجهيز الردود"
+
+When complete:
+
+show the three actual Gemini replies
+
+Do not leave the reply area stuck on an old result
+
+==================================================
+G — REQUEST QUEUE MUST WORK
+===========================
+
+If Gemini is generating a reply and another Avakin message arrives:
+
+DO NOT lose the new message
+
+Save it immediately
+
+Update conversation state
+
+If the old generation is now obsolete because the situation changed:
+
+cancel it or mark it stale
+
+Then generate using the latest context
+
+Do not show an outdated answer as the newest answer
+
+Use request IDs / context versions
+
+Example:
+
+contextVersion = 15
+
+Gemini request starts
+
+new message arrives
+
+contextVersion = 16
+
+If request for version 15 finishes afterward:
+
+do NOT overwrite the latest version 16 reply panel
+
+It can optionally remain in historical context if useful
+
+but it must never replace the newer result
+
+==================================================
+H — PRESERVE ALL OLD GEMINI REPLIES
+===================================
+
+Do not delete previous generated reply groups
+
+Every Gemini generation must create a ReplyGroup containing:
+
+* source message IDs
+* player name
+* original message/messages
+* timestamp
+* context version
+* three Gemini replies
+* style label
+* copied status
+* favorite status
+
+Old groups remain accessible in the carousel
+
+Use:
+
+←
+→
+
+and:
+
+"آخر رد"
+
+and:
+
+"X ردود جديدة"
+
+If I am browsing an older reply:
+
+do not force me to the newest one
+
+Continue generating in the background
+
+==================================================
+I — FIX ARABIC OCR PROPERLY
+===========================
+
+The current Arabic OCR quality is unacceptable
+
+It is producing random or corrupted Arabic words
+
+Do not simply run OCR against the raw low-resolution screen crop
+
+Build a proper Arabic OCR preprocessing pipeline
+
+==================================================
+J — OCR LANGUAGES
+=================
+
+Initialize OCR for BOTH:
+
+Arabic
+English
+
+Use Tesseract languages equivalent to:
+
+ara
+eng
+
+The same worker should support both languages because Avakin chat may contain:
+
+Arabic
+
+English
+
+Arabic + English mixed messages
+
+Do not initialize an English-only OCR worker
+
+==================================================
+K — DO NOT CREATE A NEW TESSERACT WORKER EVERY SECOND
+=====================================================
+
+Create and initialize the OCR worker once
+
+Keep it ready while Live Mode is active
+
+Reuse the worker for recognition
+
+Do NOT:
+
+createWorker
+recognize
+terminate
+
+every second
+
+That is slow and incorrect for continuous OCR
+
+Initialize once
+
+reuse continuously
+
+terminate only when Live Mode stops
+
+==================================================
+L — KEEP THE ORIGINAL SCREEN RESOLUTION
+=======================================
+
+When capturing the Avakin chat crop:
+
+Do NOT unnecessarily shrink it
+
+Use the actual MediaStream pixel resolution rather than only CSS dimensions
+
+The OCR canvas should use real source pixels
+
+A chat box visually displayed at 500px wide may have a higher actual captured resolution
+
+Use the real captured frame resolution
+
+==================================================
+M — UPSCALE BEFORE OCR
+======================
+
+Before OCR:
+
+take only the chat crop
+
+then create a preprocessing canvas
+
+Upscale the crop approximately:
+
+2x
+3x
+or 4x
+
+depending on original text size
+
+Use good image smoothing/resampling when appropriate
+
+The purpose is to make small Arabic characters easier for OCR to recognize
+
+Do not upscale the entire monitor
+
+Only upscale the chat region
+
+==================================================
+N — ARABIC OCR IMAGE PREPROCESSING
+==================================
+
+Create preprocessing variants for the Avakin chat crop
+
+Test techniques such as:
+
+1. original high-resolution crop
+
+2. grayscale
+
+3. increased contrast
+
+4. luminance normalization
+
+5. sharpened text
+
+6. black/white threshold variant
+
+7. inverted variant if the Avakin text/background requires it
+
+Do not permanently assume one threshold works for every Avakin theme
+
+Make preprocessing adaptive
+
+==================================================
+O — MULTIPLE OCR PASSES WHEN NEEDED
+===================================
+
+For difficult Arabic chat:
+
+it is acceptable to perform OCR on a small number of preprocessing variants
+
+For example:
+
+Pass A:
+high-resolution contrast-enhanced
+
+Pass B:
+grayscale / threshold
+
+Compare:
+
+* OCR confidence
+* Arabic character validity
+* line structure
+
+Choose the best result
+
+Do NOT run many expensive passes if the first OCR result already has strong confidence
+
+==================================================
+P — ARABIC TEXT MUST NOT BE MANUALLY REVERSED
+=============================================
+
+Arabic is RTL
+
+Do not reverse strings manually
+
+Do not reverse Arabic character order
+
+Do not split connected Arabic letters and reconstruct them manually
+
+Store Arabic text as normal Unicode strings
+
+Let RTL rendering handle display direction
+
+Bad behavior such as:
+
+ج ن ي و
+
+instead of:
+
+وينج
+
+must not happen due to manual string reversal
+
+==================================================
+Q — ARABIC NORMALIZATION
+========================
+
+After OCR perform conservative Arabic cleanup
+
+You may normalize harmless Unicode differences when appropriate
+
+But DO NOT aggressively "correct" words by guessing
+
+Never turn uncertain text into invented Arabic
+
+Keep:
+
+rawText
+
+and:
+
+cleanedText
+
+separately
+
+==================================================
+R — OCR CONFIDENCE
+==================
+
+For every detected line/message calculate confidence
+
+Conceptually:
+
+HIGH confidence
+→ accept local OCR
+
+MEDIUM confidence
+→ compare against another preprocessing pass
+
+LOW confidence
+→ use Gemini Vision fallback
+
+Do not treat garbage Arabic OCR as reliable chat context
+
+==================================================
+S — GEMINI VISION OCR FALLBACK
+==============================
+
+This is important
+
+Gemini is already connected with:
+
+GEMINI_API_KEY
+
+If local OCR confidence for the new Arabic chat is too low:
+
+Do NOT generate replies using corrupted OCR text
+
+Instead:
+
+send ONLY the small cropped Avakin chat region to Gemini Vision
+
+Do NOT send the full computer screen
+
+Ask Gemini to carefully transcribe the visible chat
+
+It should identify:
+
+* speaker
+* exact visible message text
+* message order
+
+Then use this corrected transcription as the new chat context
+
+This fallback should happen only when necessary so Free Tier usage is not wasted
+
+==================================================
+T — SAVE API REQUESTS BY COMBINING FALLBACK + REPLY
+===================================================
+
+When local OCR confidence is low:
+
+Prefer ONE Gemini multimodal request that can:
+
+1. inspect the cropped chat image
+2. transcribe the newly visible chat accurately
+3. compare it with supplied recent known messages
+4. identify genuinely new messages
+5. understand the latest relevant context
+6. return exactly 3 reply suggestions
+
+This is preferable to:
+
+Gemini OCR request
+
+then
+
+second Gemini reply request
+
+when a single request can reliably do both
+
+==================================================
+U — GEMINI LOW-CONFIDENCE REQUEST
+=================================
+
+When sending an image fallback to Gemini provide:
+
+* cropped chat image
+* my Avakin username
+* recent confirmed chat messages
+* focused player
+* selected dialect
+* selected personality
+* current context summary
+
+Ask it to return structured data
+
+Conceptually:
+
+{
+"detectedMessages": [
+{
+"speaker": "Ahmed",
+"text": "وينج",
+"isNew": true
+}
+],
+"targetPlayer": "Ahmed",
+"suggestions": [
+{
+"style": "طبيعي",
+"text": "..."
+},
+{
+"style": "مضحك",
+"text": "..."
+},
+{
+"style": "مختصر",
+"text": "..."
+}
+]
+}
+
+==================================================
+V — USE STRUCTURED GEMINI OUTPUT
+================================
+
+Use Gemini structured JSON output/schema
+
+Do not parse random prose using fragile string splitting
+
+Validate the returned structure before updating UI
+
+Require:
+
+* target player
+* detected relevant source message
+* exactly 3 reply suggestions
+* style label for each
+
+If malformed:
+
+retry safely or show an error
+
+Do not insert undefined/broken replies into the carousel
+
+==================================================
+W — DO NOT USE GEMINI VISION EVERY SECOND
+=========================================
+
+Very important:
+
+Every 1 second:
+
+perform LOCAL frame change detection first
+
+No change:
+
+do nothing
+
+Change:
+
+run local OCR
+
+Good OCR:
+
+use text with Gemini reply generation
+
+Bad OCR:
+
+use small cropped-image Gemini Vision fallback
+
+This keeps Gemini usage efficient
+
+==================================================
+X — DETECT NEW CHAT BASED ON MESSAGE DIFFERENCE
+===============================================
+
+Do not compare only the entire OCR string
+
+Parse chat into individual lines/messages
+
+Example previous state:
+
+Ahmed: وينج
+Sara: هلا
+
+New scan:
+
+Ahmed: وينج
+Sara: هلا
+Ahmed: تعالي
+
+The system should identify ONLY:
+
+Ahmed: تعالي
+
+as the new message
+
+Do not generate again for:
+
+Ahmed: وينج
+
+or:
+
+Sara: هلا
+
+==================================================
+Y — FUZZY DUPLICATE PROTECTION
+==============================
+
+Arabic OCR may vary slightly between scans
+
+Example:
+
+Scan 1:
+
+وينج
+
+Scan 2:
+
+وينح
+
+This is probably the same visible message
+
+Use:
+
+* speaker
+* line position/order
+* similarity
+* timestamp window
+* surrounding messages
+
+to avoid falsely treating OCR variation as a brand-new chat message
+
+==================================================
+Z — TEST AGAINST REAL ARABIC AVAKIN CHAT
+========================================
+
+Do NOT tell me this is fixed merely because a unit test passes
+
+Actually test the real pipeline with Arabic examples
+
+Test messages such as:
+
+هلا وينكم
+
+وينج
+
+تعالي عندنا
+
+شو تسوين
+
+هههههههه
+
+عندج شي جديد
+
+دقيقه بس
+
+وينك ما ترد
+
+وش السالفه
+
+Test mixed text:
+
+Ahmed وينك
+
+تعال private
+
+هههه lol
+
+The OCR result displayed in Live Chat must be recognizably close to the actual visible text
+
+==================================================
+AA — ADD AN OCR CALIBRATION VIEW
+================================
+
+Add a simple temporary calibration/debug option:
+
+"اختبار قراءة الشات"
+
+Show:
+
+1. current Avakin chat crop
+
+2. raw OCR
+
+3. cleaned OCR
+
+4. confidence
+
+5. final parsed messages
+
+This is so I can verify whether OCR is actually seeing the correct Arabic
+
+Keep this optional
+
+Normal Live Mode should remain clean
+
+==================================================
+AB — CHAT REGION QUALITY WARNING
+================================
+
+If the selected chat region is:
+
+too small
+
+blurred
+
+partially outside the game chat
+
+or contains too little resolution
+
+show an Arabic warning:
+
+"منطقة الشات مو واضحة جرب تحددها بشكل أكبر"
+
+Do not silently continue generating nonsense OCR
+
+==================================================
+AC — ALL ACTUAL CHAT MUST STILL BE SAVED
+========================================
+
+Once a message is confirmed through:
+
+high-confidence local OCR
+
+or
+
+Gemini Vision fallback
+
+save it to Live Chat Log
+
+Store:
+
+* speaker
+* text
+* timestamp
+* order
+* confidence
+* OCR source
+* whether it was locally recognized
+* whether Gemini corrected it
+
+This confirmed chat becomes conversation memory
+
+==================================================
+AD — CORRECT SPEAKER DETECTION
+==============================
+
+Do not merge:
+
+player username
+
+with:
+
+message body
+
+Try to preserve the visual line/word layout from OCR
+
+Parse each chat entry into:
+
+speaker
+
+message
+
+If uncertain about the speaker:
+
+do not confidently assign the message to the wrong player
+
+Mark it uncertain or use the Gemini Vision fallback
+
+==================================================
+AE — LIVE REPLY PANEL BEHAVIOR
+==============================
+
+The desired live behavior is:
+
+I start Live Mode
+
+→ website watches Avakin chat every second
+
+→ Arabic chat changes
+
+→ new message is detected correctly
+
+→ the speaker is identified
+
+→ message is added to conversation memory
+
+→ Gemini automatically receives the latest context
+
+→ Gemini creates 3 natural responses
+
+→ the latest reply panel updates automatically
+
+→ previous reply groups remain available with arrows
+
+→ another new message appears
+
+→ process repeats automatically
+
+I do not press anything
+
+==================================================
+AF — IMPORTANT DEFINITION OF "AUTOMATIC REPLY"
+==============================================
+
+When I say:
+
+"رد تلقائي"
+
+I mean:
+
+AUTOMATICALLY GENERATE reply suggestions
+
+I do NOT mean automatically send/type the message into Avakin
+
+The site should automatically GENERATE the three Gemini suggestions
+
+I still manually click one to copy it and paste it myself
+
+==================================================
+AG — FINAL ACCEPTANCE TEST
+==========================
+
+Do not mark this bug fixed until this exact test works:
+
+1. Start Live Avakin screen sharing
+
+2. Select real Avakin chat region
+
+3. Arabic message appears in game
+
+4. Within the next scan cycle the site detects it
+
+5. Arabic Live Chat text is readable and matches the game reasonably accurately
+
+6. Correct player is identified
+
+7. Message is saved to conversation history
+
+8. Gemini is called automatically
+
+9. Three REAL Gemini replies appear without me pressing Generate
+
+10. The three replies follow my selected Arabic dialect/personality
+
+11. Replies use minimal punctuation as configured
+
+12. Another Arabic message arrives
+
+13. The site automatically repeats the process
+
+14. Previous three replies remain available in carousel/history
+
+15. Clicking a reply copies it
+
+16. No fake/static replies are used
+
+17. No duplicate generation occurs for the same visible message
+
+18. Live monitoring continues afterward
+
+If any of these steps fail:
+
+the Live Assistant is NOT finished
+
+Continue debugging until the full real pipeline works

@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { DetectedChatMessage } from './detectedChatMessage';
 import type { ReplySuggestion } from './replySuggestion';
 
 export interface GenerateRepliesResponse {
@@ -13,4 +14,8 @@ export interface GenerateRepliesResponse {
      * @maxItems 3
      */
   suggestions: ReplySuggestion[];
+  /** @maxItems 30 */
+  detectedMessages?: DetectedChatMessage[];
+  /** @maxLength 64 */
+  targetPlayer?: string;
 }

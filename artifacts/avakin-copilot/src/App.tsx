@@ -33,9 +33,10 @@ type ChatMessage = {
   isDirect: boolean; isConflict: boolean; source: Source; order?: number; isMine?: boolean; directedAtMe?: boolean;
   mentionsMe?: boolean; focusedPlayer?: boolean; ocrConfidence?: number; rawOcrText?: string; cleanedText?: string;
   relationshipContext?: string; threadContext?: string; screenOrder?: number; replyToPlayerId?: string;
+  ocrSource?: 'local' | 'gemini-vision'; geminiCorrected?: boolean;
 };
-type DetectedMessage = { playerName: string; text: string; rawText: string; ocrConfidence: number; screenOrder?: number; };
-type OcrResult = { text: string; rawText: string; confidence: number };
+type DetectedMessage = { playerName: string; text: string; rawText: string; ocrConfidence: number; screenOrder?: number; ocrSource?: 'local' | 'gemini-vision'; geminiCorrected?: boolean; };
+type OcrResult = { text: string; rawText: string; confidence: number; variant?: string };
 type ReplySuggestion = { id: string; sourceMessageId: string; playerId: string; generatedText: string; style: SuggestionStyle; generatedAt: string; copiedAt?: string; favorite: boolean; };
 type Session = {
   id: string; name: string; createdAt: string; updatedAt: string; messageCount: number; replyCount: number;
@@ -88,6 +89,9 @@ const FRAME_CHANGED_CELL_THRESHOLD = 3;
 const MIN_FRAME_THRESHOLD_SCALE = 0.35;
 const MAX_FRAME_THRESHOLD_SCALE = 2.5;
 const OCR_COOLDOWN_MS = 1500;
+const OCR_HIGH_CONFIDENCE = 78;
+const OCR_MEDIUM_CONFIDENCE = 55;
+const OCR_MAX_DIMENSION = 2400;
 type FrameSignature = number[];
 
 function createFrameSignature(context: CanvasRenderingContext2D, width: number, height: number): FrameSignature {
@@ -202,6 +206,36 @@ function parseDetectedMessages(rawText: string, knownPlayers: Player[], myUserna
   return messages;
 }
 
+function extractNewVisibleMessages(previous: DetectedMessage[], current: DetectedMessage[]) {
+  if (!previous.length) return current;
+  const sameMessage = (left: DetectedMessage, right: DetectedMessage) =>
+    comparableText(left.playerName) === comparableText(right.playerName) &&
+    textSimilarity(left.text, right.text) >= 0.82;
+  const maximumOverlap = Math.min(previous.length, current.length);
+  for (let overlap = maximumOverlap; overlap > 0; overlap -= 1) {
+    const previousTail = previous.slice(previous.length - overlap);
+    const currentHead = current.slice(0, overlap);
+    if (previousTail.every((message, index) => sameMessage(message, currentHead[index]))) {
+      return current.slice(overlap);
+    }
+  }
+  return current;
+}
+
+function canvasToVisionDataUrl(source: HTMLCanvasElement) {
+  const maximumDimension = 1280;
+  const scale = Math.min(1, maximumDimension / Math.max(source.width, source.height));
+  const output = document.createElement('canvas');
+  output.width = Math.max(1, Math.round(source.width * scale));
+  output.height = Math.max(1, Math.round(source.height * scale));
+  output.getContext('2d')?.drawImage(source, 0, 0, output.width, output.height);
+  for (const quality of [0.82, 0.68, 0.52]) {
+    const dataUrl = output.toDataURL('image/jpeg', quality);
+    if (dataUrl.length <= 390_000) return dataUrl;
+  }
+  return output.toDataURL('image/jpeg', 0.42);
+}
+
 function buildConversationSummaries(messages: ChatMessage[], focusedPlayerId: string) {
   const byPlayer = new Map<string, ChatMessage[]>();
   messages.forEach((message) => {
@@ -292,12 +326,29 @@ async function writeStore<T>(key: string, value: T) {
 function usePersisted<T>(key: string, fallback: T): [T, (value: T | ((old: T) => T)) => void] {
   const [value, setValue] = useState<T>(fallback);
   const hydrated = useRef(false);
+  const changedBeforeHydration = useRef(false);
+  const currentValue = useRef(value);
+  currentValue.current = value;
+  const setPersistedValue = (next: T | ((old: T) => T)) => {
+    if (!hydrated.current) changedBeforeHydration.current = true;
+    setValue((old) => {
+      const resolved = typeof next === 'function' ? (next as (old: T) => T)(old) : next;
+      currentValue.current = resolved;
+      return resolved;
+    });
+  };
   useEffect(() => {
     let active = true;
     void readStore(key, fallback).then((stored) => {
       if (active) {
-        setValue(stored);
+        // A user action or capture can happen before IndexedDB finishes. Never
+        // replace that newer in-memory state with an old disk snapshot.
+        if (!changedBeforeHydration.current) {
+          currentValue.current = stored;
+          setValue(stored);
+        }
         hydrated.current = true;
+        if (changedBeforeHydration.current) void writeStore(key, currentValue.current);
       }
     });
     return () => { active = false; };
@@ -305,7 +356,7 @@ function usePersisted<T>(key: string, fallback: T): [T, (value: T | ((old: T) =>
   useEffect(() => {
     if (hydrated.current) void writeStore(key, value);
   }, [key, value]);
-  return [value, setValue];
+  return [value, setPersistedValue];
 }
 
 function useCopilotStore() {
@@ -319,6 +370,12 @@ function useCopilotStore() {
   const [sessions, setSessions] = usePersisted<Session[]>('avakin.sessions', []);
   const [history, setHistory] = usePersisted<ReplySuggestion[]>('avakin.history', []);
   const [liveRuntime, setLiveRuntime] = useState<LiveRuntime>({ captureState: 'idle', lastOcrAt: null });
+  // Store actions can be called by the capture interval between renders.
+  // Keep their duplicate detection and player resolution on current state.
+  const playersRef = useRef(players);
+  const messagesRef = useRef(messages);
+  playersRef.current = players;
+  messagesRef.current = messages;
   useEffect(() => {
     if (messages.some((message) => OBSOLETE_SEEDED_MESSAGE_IDS.has(message.id)) || suggestions.some((suggestion) => OBSOLETE_SEEDED_SUGGESTION_IDS.has(suggestion.id)) || players.some((player) => OBSOLETE_SEEDED_PLAYER_IDS.has(player.id))) {
       setMessages((old) => old.filter((message) => !OBSOLETE_SEEDED_MESSAGE_IDS.has(message.id)));
@@ -330,7 +387,7 @@ function useCopilotStore() {
   const activeProfile = profiles.find((profile) => profile.id === activeProfileId) ?? profiles[0];
   const addDetectedMessages = (detected: DetectedMessage[], source: Source, focusedPlayerId?: string): ChatMessage[] => {
     const accepted: ChatMessage[] = [];
-    const workingPlayers = [...players];
+    const workingPlayers = [...playersRef.current];
     const usernameKey = comparableText(preferences.avakinUsername ?? '');
     let effectiveFocusedPlayerId = focusedPlayerId && workingPlayers.some((entry) => entry.id === focusedPlayerId) ? focusedPlayerId : undefined;
     detected.forEach((item) => {
@@ -359,7 +416,7 @@ function useCopilotStore() {
         workingPlayers[workingPlayers.findIndex((entry) => entry.id === player?.id)] = player;
       }
       const detectedAt = Date.now();
-      const recent = [...messages, ...accepted].filter((message) => detectedAt - new Date(message.timestamp).getTime() <= 12_000).slice(-30);
+       const recent = [...messagesRef.current, ...accepted].filter((message) => detectedAt - new Date(message.timestamp).getTime() <= 12_000).slice(-30);
       const duplicate = recent.some((message) => {
         if (comparableText(message.playerName) !== speakerKey) return false;
         const similarity = textSimilarity(message.cleanedText ?? message.text, cleanedText);
@@ -379,7 +436,7 @@ function useCopilotStore() {
         isDirect: directedAtMe,
         isConflict: /زعل|مشكلة|ليش|كذاب|غلط|اسكت|لا تكذب/i.test(cleanedText),
         source,
-        order: messages.length + accepted.length + 1,
+         order: messagesRef.current.length + accepted.length + 1,
         isMine,
         directedAtMe,
         mentionsMe,
@@ -387,6 +444,8 @@ function useCopilotStore() {
         ocrConfidence: item.ocrConfidence,
         rawOcrText: item.rawText,
         cleanedText,
+        ocrSource: item.ocrSource ?? (source === 'screen' ? 'local' : undefined),
+        geminiCorrected: item.geminiCorrected,
         relationshipContext: player.relationshipContext ?? '',
         threadContext: isFocused ? `محادثة اللاعب المركّز: ${player.name}` : `سياق الغرفة مع ${player.name}`,
         screenOrder: item.screenOrder,
@@ -403,13 +462,15 @@ function useCopilotStore() {
       };
     });
     if (accepted.length) {
+      messagesRef.current = [...messagesRef.current, ...accepted];
+      playersRef.current = workingPlayers;
       setMessages((old) => [...old, ...accepted]);
       setPlayers(workingPlayers);
     }
     return accepted;
   };
   const addMessage = (text: string, playerId = '', source: Source = 'manual', speakerName = ''): ChatMessage | null => {
-    const player = players.find((item) => item.id === playerId);
+    const player = playersRef.current.find((item) => item.id === playerId);
     const resolvedSpeaker = speakerName.trim() || player?.name || '';
     if (!resolvedSpeaker) return null;
     const [message] = addDetectedMessages([{ playerName: resolvedSpeaker, text, rawText: text, ocrConfidence: 100 }], source, playerId || undefined);
@@ -555,12 +616,15 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
   const [manualText, setManualText] = useState('');
   const [manualSpeaker, setManualSpeaker] = useState('');
   const [notice, setNotice] = useState('');
+  const [showOcrTest, setShowOcrTest] = useState(false);
+  const [ocrDebug, setOcrDebug] = useState<{ image: string; raw: string; cleaned: string; confidence: number; variant: string; width: number; height: number; parsed: DetectedMessage[] } | null>(null);
   const [pendingReplyMessages, setPendingReplyMessages] = useState<ChatMessage[]>([]);
   const [focusedId, setFocusedId] = useState(players.find((player) => player.focused)?.id ?? players[0]?.id ?? '');
   const streamRef = useRef<MediaStream | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const lastFrameSignature = useRef<FrameSignature | null>(null);
+  const lastVisibleMessagesRef = useRef<DetectedMessage[]>([]);
   const lastOcrAt = useRef(0);
   const frameBusy = useRef(false);
   const aiAbortRef = useRef<AbortController | null>(null);
@@ -572,16 +636,19 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
   const dialectRef = useRef(dialect);
   const activeProfileRef = useRef(activeProfile);
   const focusedIdRef = useRef(focusedId);
+  const captureStateRef = useRef<CaptureState>(captureState);
+  const calibratedRef = useRef(calibrated);
   const addDetectedMessagesRef = useRef(addDetectedMessages);
   const aiQueueRef = useRef<ChatMessage[]>([]);
   const aiProcessingRef = useRef(false);
   const activeAiMessageRef = useRef<ChatMessage | null>(null);
   const contextVersionRef = useRef(0);
-  const requestAiRef = useRef<(message: ChatMessage) => Promise<void>>(async () => undefined);
+  const requestAiRef = useRef<(message: ChatMessage, batch?: ChatMessage[], vision?: { cropImageDataUrl: string; localOcrText: string; localOcrConfidence: number }) => Promise<void>>(async () => undefined);
   const ocrRef = useRef<(image: Blob | HTMLCanvasElement) => Promise<OcrResult | null>>(async () => null);
   const focusedPlayer = players.find((player) => player.id === focusedId) ?? players[0];
   const latestMessages = messages;
   const publishCaptureState = (state: CaptureState) => {
+    captureStateRef.current = state;
     setCaptureState(state);
     setLiveRuntime((old) => ({ ...old, captureState: state }));
   };
@@ -601,7 +668,7 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
     if (obsoleteIds.size) setPendingReplyMessages((old) => old.filter((message) => !obsoleteIds.has(message.id)));
     aiAbortRef.current?.abort();
   };
-  const requestAi = async (message: ChatMessage) => {
+  const requestAi = async (message: ChatMessage, acceptedBatch: ChatMessage[] = [message], vision?: { cropImageDataUrl: string; localOcrText: string; localOcrConfidence: number }) => {
     const player = playersRef.current.find((entry) => entry.id === message.playerId);
     const useful = !message.isMine && !player?.ignored && Boolean(message.focusedPlayer || message.directedAtMe || message.mentionsMe || message.isConflict || /[؟?]$/.test(message.text));
     if (!useful || aiQueueRef.current.some((queued) => queued.id === message.id) || suggestionsRef.current.some((item) => item.sourceMessageId === message.id)) return;
@@ -610,6 +677,13 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
       setNotice('تم حفظ الرسالة الحقيقية، لكن لم تُنشأ ردود لأن Gemini غير مفعّل من الإعدادات.');
       return;
     }
+    // A scan is one conversational turn. Abort an older turn rather than
+    // queueing it, so a late response can never become the current reply.
+    aiAbortRef.current?.abort();
+    aiQueueRef.current = [];
+    // Start the replacement immediately. The aborted loop observes the
+    // version guard and has an empty queue, so it cannot consume this batch.
+    if (aiProcessingRef.current) aiProcessingRef.current = false;
     aiQueueRef.current.push(message);
     setPendingReplyMessages((old) => old.some((item) => item.id === message.id) ? old : [...old, message]);
     if (aiProcessingRef.current) return;
@@ -662,7 +736,8 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
             globalSummary,
             playerSummary,
             recentMessages: contextMessages.map(asContext),
-            newMessages: [asContext(queuedMessage)],
+             newMessages: acceptedBatch.map(asContext),
+             ...(vision ?? {}),
             dialect: currentDialect.dialect,
             dialectStrength: currentDialect.strength,
             mode: currentPreferences.mode,
@@ -680,7 +755,7 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
             },
           }),
         });
-        const payload = await response.json() as { error?: string; suggestions?: Array<{ text: string; style: SuggestionStyle }> };
+        const payload = await response.json() as { error?: string; suggestions?: Array<{ text: string; style: SuggestionStyle }>; detectedMessages?: Array<{ speaker: string; text: string; isNew: boolean; confidence: number }>; targetPlayer?: string };
         if (!response.ok || !payload.suggestions?.length) {
           if (!controller.signal.aborted) {
             setPendingReplyMessages((old) => old.filter((item) => item.id !== queuedMessage.id));
@@ -690,16 +765,42 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
           continue;
         }
         if (controller.signal.aborted || requestContextVersion !== contextVersionRef.current) continue;
+        // Vision confirmation arrives in this same request; it is the only
+        // path allowed to persist a low-confidence local transcription.
+        let finalMessage = queuedMessage;
+        if (vision && payload.detectedMessages?.length) {
+          const targetId = payload.targetPlayer && playersRef.current.find((player) => comparableText(player.name) === comparableText(payload.targetPlayer ?? ''))?.id;
+          if (targetId) setFocusedId(targetId);
+          const confirmed = addDetectedMessagesRef.current(payload.detectedMessages.filter((item) => item.isNew).map((item, index) => ({
+            playerName: item.speaker ?? payload.targetPlayer ?? 'غير معروف',
+            text: item.text,
+            rawText: item.text,
+            ocrConfidence: Math.round(item.confidence * 100),
+            screenOrder: index,
+            ocrSource: 'gemini-vision',
+            geminiCorrected: true,
+          })), 'screen', targetId ?? focusedIdRef.current);
+          if (confirmed.length) {
+            finalMessage = [...confirmed].reverse().find((item) => item.directedAtMe || item.focusedPlayer || item.mentionsMe || item.isConflict) ?? confirmed.at(-1) ?? queuedMessage;
+            setFocusedId(finalMessage.playerId);
+            focusedIdRef.current = finalMessage.playerId;
+          } else {
+            setPendingReplyMessages((old) => old.filter((item) => item.id !== queuedMessage.id));
+            setAiState('paused');
+            setNotice('منطقة الشات مو واضحة جرب تحددها بشكل أكبر');
+            continue;
+          }
+        }
         const generated = payload.suggestions.map((item, index) => ({
           id: uid('ai'),
-          sourceMessageId: queuedMessage.id,
-          playerId: queuedMessage.playerId,
+          sourceMessageId: finalMessage.id,
+          playerId: finalMessage.playerId,
           generatedText: item.text,
           style: item.style ?? (['متوازن', 'مباشر', 'خفيف'] as const)[index],
           generatedAt: now(),
           favorite: false,
         }));
-        setSuggestions((old) => old.some((item) => item.sourceMessageId === queuedMessage.id) ? old : [...old, ...generated]);
+        setSuggestions((old) => old.some((item) => item.sourceMessageId === finalMessage.id) ? old : [...old, ...generated]);
         setPendingReplyMessages((old) => old.filter((item) => item.id !== queuedMessage.id));
         setAiState('ready');
       } catch {
@@ -720,22 +821,99 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
     frameBusy.current = true;
     setOcrState('reading');
     try {
+      const testQueue = (window as Window & { __avakinTestOcrQueue?: OcrResult[] }).__avakinTestOcrQueue;
+      const injectedResult = testQueue?.shift();
+      if (injectedResult) {
+        setLiveRuntime((old) => ({ ...old, lastOcrAt: now() }));
+        return injectedResult;
+      }
       if (!ocrWorkerRef.current) {
         const { createWorker } = await import('tesseract.js');
-        ocrWorkerRef.current = await createWorker('ara') as unknown as NonNullable<typeof ocrWorkerRef.current>;
+        ocrWorkerRef.current = await createWorker('ara+eng') as unknown as NonNullable<typeof ocrWorkerRef.current>;
       }
-      const result = await ocrWorkerRef.current.recognize(image);
-      const rawText = result.data.text.trim();
+      const preprocess = document.createElement('canvas');
+      const source = image instanceof HTMLCanvasElement ? image : await createImageBitmap(image);
+      const sourceWidth = source instanceof HTMLCanvasElement ? source.width : source.width;
+      const sourceHeight = source instanceof HTMLCanvasElement ? source.height : source.height;
+      const scale = Math.min(2, OCR_MAX_DIMENSION / Math.max(sourceWidth, sourceHeight));
+      preprocess.width = Math.max(1, Math.round(sourceWidth * scale));
+      preprocess.height = Math.max(1, Math.round(sourceHeight * scale));
+      const preprocessingContext = preprocess.getContext('2d', { willReadFrequently: true });
+      if (!preprocessingContext) return null;
+      preprocessingContext.imageSmoothingEnabled = true;
+      preprocessingContext.drawImage(source, 0, 0, preprocess.width, preprocess.height);
+      const pixels = preprocessingContext.getImageData(0, 0, preprocess.width, preprocess.height);
+      for (let index = 0; index < pixels.data.length; index += 4) {
+        const gray = pixels.data[index] * .299 + pixels.data[index + 1] * .587 + pixels.data[index + 2] * .114;
+        const contrast = Math.max(0, Math.min(255, (gray - 128) * 1.18 + 128));
+        pixels.data[index] = pixels.data[index + 1] = pixels.data[index + 2] = contrast;
+      }
+      preprocessingContext.putImageData(pixels, 0, 0);
+      const result = await ocrWorkerRef.current.recognize(preprocess);
+      let selected = result.data;
+      const arabicValidity = (selected.text.match(/[\u0600-\u06ff]/g)?.length ?? 0) / Math.max(1, selected.text.replace(/\s/g, '').length);
+      let variant = 'grayscale-contrast ×2';
+      if ((selected.confidence ?? 0) < OCR_HIGH_CONFIDENCE || (selected.text.trim() && arabicValidity < .18)) {
+        const threshold = preprocessingContext.getImageData(0, 0, preprocess.width, preprocess.height);
+        for (let index = 0; index < threshold.data.length; index += 4) {
+          const value = threshold.data[index] > 155 ? 0 : 255; // inverted variant helps light game text
+          threshold.data[index] = threshold.data[index + 1] = threshold.data[index + 2] = value;
+        }
+        preprocessingContext.putImageData(threshold, 0, 0);
+        const alternate = await ocrWorkerRef.current.recognize(preprocess);
+        const alternateValidity = (alternate.data.text.match(/[\u0600-\u06ff]/g)?.length ?? 0) / Math.max(1, alternate.data.text.replace(/\s/g, '').length);
+        if ((alternate.data.confidence ?? 0) + alternateValidity * 12 > (selected.confidence ?? 0) + arabicValidity * 12) {
+          selected = alternate.data;
+          variant = 'threshold-inverted ×2';
+        }
+      }
+      const rawText = selected.text.trim();
       setLiveRuntime((old) => ({ ...old, lastOcrAt: now() }));
-      return rawText ? { text: rawText.replace(/\s+/g, ' ').trim(), rawText, confidence: Number(result.data.confidence ?? 0) } : null;
+      return rawText ? { text: rawText.replace(/\s+/g, ' ').trim(), rawText, confidence: Number(selected.confidence ?? 0), variant } : null;
     } catch {
       setOcrState('unavailable');
       setNotice('تعذر تشغيل القراءة المحلية. يمكنك إدخال نص الرسالة يدوياً.');
       return null;
     } finally {
       frameBusy.current = false;
-      setOcrState(captureState === 'capturing' && calibrated ? 'watching' : 'idle');
+      setOcrState(captureStateRef.current === 'capturing' && calibratedRef.current ? 'watching' : 'idle');
     }
+  };
+  const processOcrResult = (result: OcrResult, cropImageDataUrl: string, width: number, height: number) => {
+    const allVisible = parseDetectedMessages(result.rawText, playersRef.current, preferencesRef.current.avakinUsername ?? '', playersRef.current.find((player) => player.id === focusedIdRef.current)?.name ?? 'غير معروف')
+      .map((item) => ({ ...item, ocrConfidence: result.confidence, ocrSource: 'local' as const }));
+    const detected = extractNewVisibleMessages(lastVisibleMessagesRef.current, allVisible);
+    setOcrDebug({ image: cropImageDataUrl, raw: result.rawText, cleaned: result.text, confidence: result.confidence, variant: result.variant ?? 'grayscale-contrast', width, height, parsed: detected });
+    const cropTooSmall = width < 420 || height < 120;
+    if (result.confidence < OCR_MEDIUM_CONFIDENCE || cropTooSmall) {
+      if (!preferencesRef.current.geminiEnabled) {
+        setNotice('منطقة الشات مو واضحة جرب تحددها بشكل أكبر');
+        return;
+      }
+      const candidate = detected.at(-1) ?? {
+        playerName: playersRef.current.find((player) => player.id === focusedIdRef.current)?.name ?? 'غير معروف',
+        text: result.text || 'قراءة غير واضحة',
+        rawText: result.rawText,
+        ocrConfidence: result.confidence,
+      };
+      const transient: ChatMessage = {
+        id: uid('vision'), playerId: playersRef.current.find((player) => comparableText(player.name) === comparableText(candidate.playerName))?.id ?? '',
+        playerName: candidate.playerName, text: candidate.text, cleanedText: candidate.text, rawOcrText: candidate.rawText,
+        timestamp: now(), target: 'you', isDirect: true, isConflict: false, source: 'screen', focusedPlayer: true, ocrConfidence: result.confidence,
+      };
+      invalidateAiContext();
+      setNotice('تم اكتشاف رسالة جديدة');
+      void requestAiRef.current(transient, [], { cropImageDataUrl, localOcrText: result.rawText, localOcrConfidence: result.confidence });
+      return;
+    }
+    lastVisibleMessagesRef.current = allVisible;
+    const accepted = addDetectedMessagesRef.current(detected, 'screen', focusedIdRef.current);
+    if (!accepted.length) return;
+    const newestRelevant = [...accepted].reverse().find((item) => item.directedAtMe || item.focusedPlayer || item.mentionsMe || item.isConflict || /[؟?]$/.test(item.text));
+    if (!newestRelevant) return;
+    invalidateAiContext();
+    setNotice('تم اكتشاف رسالة جديدة');
+    void requestAiRef.current(newestRelevant, accepted);
   };
   messagesRef.current = messages;
   playersRef.current = players;
@@ -744,18 +922,20 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
   dialectRef.current = dialect;
   activeProfileRef.current = activeProfile;
   focusedIdRef.current = focusedId;
+  captureStateRef.current = captureState;
+  calibratedRef.current = calibrated;
   addDetectedMessagesRef.current = addDetectedMessages;
   requestAiRef.current = requestAi;
   ocrRef.current = runOcr;
   const stopCapture = () => {
-    aiAbortRef.current?.abort();
-    aiQueueRef.current = [];
-    aiProcessingRef.current = false;
-    activeAiMessageRef.current = null;
-    setPendingReplyMessages([]);
+    invalidateAiContext();
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
+    void ocrWorkerRef.current?.terminate();
+    ocrWorkerRef.current = null;
     lastFrameSignature.current = null;
+    lastVisibleMessagesRef.current = [];
+    calibratedRef.current = false;
     setChatCrop(DEFAULT_CHAT_CROP);
     setCalibrationDraft(DEFAULT_CHAT_CROP);
     setCalibrated(false);
@@ -765,6 +945,7 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
     setNotice('تم إيقاف الالتقاط وتنظيف المصدر من الذاكرة.');
   };
   const startCapture = async () => {
+    invalidateAiContext();
     if (!preferences.privacyCapture) { setNotice('التقاط الشاشة موقوف من الإعدادات. فعّله أولاً إذا أردت استخدام المشاركة.'); return; }
     if (!navigator.mediaDevices?.getDisplayMedia) { publishCaptureState('denied'); setNotice('المتصفح لا يدعم مشاركة الشاشة. استخدم الإدخال اليدوي حالياً.'); return; }
     publishCaptureState('requesting'); setNotice('');
@@ -779,8 +960,13 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
       setOcrState(calibrated ? 'watching' : 'idle');
       setNotice('الشاشة متصلة. حدد منطقة الدردشة لبدء القراءة المحلية.');
       stream.getVideoTracks()[0]?.addEventListener('ended', () => {
+        invalidateAiContext();
         streamRef.current = null;
+        void ocrWorkerRef.current?.terminate();
+        ocrWorkerRef.current = null;
         lastFrameSignature.current = null;
+        lastVisibleMessagesRef.current = [];
+        calibratedRef.current = false;
         setChatCrop(DEFAULT_CHAT_CROP);
         setCalibrationDraft(DEFAULT_CHAT_CROP);
         setCalibrated(false);
@@ -799,6 +985,7 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
       return;
     }
     setChatCrop(clampCrop(calibrationDraft));
+    calibratedRef.current = true;
     setCalibrated(true);
     setCalibrationOpen(false);
     setOcrState('watching');
@@ -812,7 +999,6 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
     }
     const accepted = addMessage(manualText, focusedId, 'manual', manualSpeaker);
     if (accepted) {
-      messagesRef.current = [...messagesRef.current, accepted];
       invalidateAiContext();
       setManualText('');
       setManualSpeaker('');
@@ -826,17 +1012,11 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
     if (!file) return;
     const result = await runOcr(file);
     if (!result) return;
-    const detected = parseDetectedMessages(result.rawText, playersRef.current, preferences.avakinUsername ?? '', focusedPlayer?.name ?? 'غير معروف')
-      .map((item) => ({ ...item, ocrConfidence: result.confidence }));
-    const accepted = addDetectedMessages(detected, 'screen', focusedId);
-    if (accepted.length) {
-      messagesRef.current = [...messagesRef.current, ...accepted];
-      invalidateAiContext();
-      setNotice(`تمت قراءة الصورة محلياً وإضافة ${accepted.length} رسالة إلى سجل الشات.`);
-      accepted.forEach((message) => { void requestAi(message); });
-    } else {
-      setNotice('هذه الرسالة موجودة مسبقاً.');
-    }
+    const bitmap = await createImageBitmap(file);
+    const preview = document.createElement('canvas');
+    preview.width = bitmap.width; preview.height = bitmap.height;
+    preview.getContext('2d')?.drawImage(bitmap, 0, 0);
+    processOcrResult(result, canvasToVisionDataUrl(preview), bitmap.width, bitmap.height);
   };
   useEffect(() => {
     if (captureState !== 'capturing' || !calibrated) return;
@@ -850,15 +1030,17 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
     const changedCellThreshold = frameChangedCellThreshold(chatCrop);
     const timer = window.setInterval(async () => {
       if (frameBusy.current || video.readyState < 2 || Date.now() - lastOcrAt.current < OCR_COOLDOWN_MS) return;
-      canvas.width = 640;
        const sourceWidth = video.videoWidth || 640;
        const sourceHeight = video.videoHeight || 360;
        const sourceX = Math.round(sourceWidth * chatCrop.x);
        const sourceY = Math.round(sourceHeight * chatCrop.y);
        const sourceCropWidth = Math.min(sourceWidth - sourceX, Math.max(1, Math.round(sourceWidth * chatCrop.width)));
        const sourceCropHeight = Math.min(sourceHeight - sourceY, Math.max(1, Math.round(sourceHeight * chatCrop.height)));
-       canvas.height = Math.max(1, Math.round(canvas.width * sourceCropHeight / sourceCropWidth));
-       context.drawImage(video, sourceX, sourceY, sourceCropWidth, sourceCropHeight, 0, 0, canvas.width, canvas.height);
+        // Keep the true crop pixels; only the OCR preprocessing canvas is
+        // enlarged. This also keeps crop-size change detection calibrated.
+        canvas.width = sourceCropWidth;
+        canvas.height = sourceCropHeight;
+        context.drawImage(video, sourceX, sourceY, sourceCropWidth, sourceCropHeight, 0, 0, sourceCropWidth, sourceCropHeight);
       const signature = createFrameSignature(context, canvas.width, canvas.height);
       const difference = frameDifference(lastFrameSignature.current, signature, changeThreshold);
       lastFrameSignature.current = signature;
@@ -869,13 +1051,7 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
       lastOcrAt.current = Date.now();
       const result = await ocrRef.current(canvas);
       if (!result) return;
-      const detected = parseDetectedMessages(result.rawText, playersRef.current, preferences.avakinUsername ?? '', focusedPlayer?.name ?? 'غير معروف')
-        .map((item) => ({ ...item, ocrConfidence: result.confidence }));
-      const accepted = addDetectedMessagesRef.current(detected, 'screen', focusedId);
-      if (!accepted.length) return;
-      messagesRef.current = [...messagesRef.current, ...accepted];
-      invalidateAiContext();
-      accepted.forEach((message) => { void requestAiRef.current(message); });
+       processOcrResult(result, canvasToVisionDataUrl(canvas), sourceCropWidth, sourceCropHeight);
     }, 1000);
     return () => window.clearInterval(timer);
    }, [captureState, calibrated, chatCrop, focusedId, focusedPlayer?.name, preferences.avakinUsername]);
@@ -908,7 +1084,7 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
         <div className="grid gap-5 lg:grid-cols-[1.1fr_.9fr]">
           <div className="relative overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">
             <div className="absolute left-0 top-0 h-24 w-24 rounded-full bg-accent/10 blur-2xl" />
-            <div className="relative flex items-start justify-between gap-4"><div><div className="mb-2 flex items-center gap-2 text-xs font-bold text-primary"><Activity size={15} />مصدر المحادثة</div><h2 className="text-lg font-extrabold">مشاركة نافذة أفاكن</h2><p className="mt-1 max-w-sm text-xs leading-5 text-muted-foreground">لا نستخدم الكاميرا. لا تُحفظ الصور. المشاركة تبقى حتى تضغط إيقاف.</p></div><div className={`grid h-11 w-11 place-items-center rounded-xl ${captureState === 'capturing' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}><Monitor size={20} /></div></div>
+            <div className="relative flex items-start justify-between gap-4"><div><div className="mb-2 flex items-center gap-2 text-xs font-bold text-primary"><Activity size={15} />مصدر المحادثة</div><h2 className="text-lg font-extrabold">مشاركة نافذة أفاكن</h2><p className="mt-1 max-w-sm text-xs leading-5 text-muted-foreground">تبقى اللقطات محلياً ولا تُحفظ؛ قد تُرسل منطقة الشات الصغيرة فقط إلى Gemini عند ضعف OCR وتفعيله.</p></div><div className={`grid h-11 w-11 place-items-center rounded-xl ${captureState === 'capturing' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}><Monitor size={20} /></div></div>
             <div className="mt-5 flex flex-wrap items-center gap-2">
               {captureState === 'capturing' ? <button type="button" onClick={stopCapture} data-testid="button-stop-capture" className="inline-flex items-center gap-2 rounded-lg bg-destructive px-4 py-2.5 text-xs font-bold text-destructive-foreground"><X size={15} />إيقاف الالتقاط</button> : <button type="button" disabled={captureState === 'requesting'} onClick={startCapture} data-testid="button-start-capture" className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-xs font-bold text-primary-foreground disabled:opacity-60">{captureState === 'requesting' ? <RefreshCw size={15} className="animate-spin" /> : <Radio size={15} />}{captureState === 'requesting' ? 'بانتظار الإذن…' : 'ابدأ مشاركة الشاشة'}</button>}
                <button type="button" onClick={() => document.getElementById('chat-image-input')?.click()} data-testid="button-screenshot-fallback" className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-xs font-bold hover:bg-muted"><FileText size={15} />قراءة صورة محلياً</button>
@@ -937,6 +1113,7 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
              </div>
              <button type="button" onClick={openCalibration} data-testid="button-calibrate-chat" className="mt-3 inline-flex items-center gap-2 text-xs font-bold text-primary hover:underline"><Focus size={14} />{calibrated ? 'إعادة تحديد المنطقة' : 'فتح معاينة وتحديد المنطقة'}</button>
              {calibrated && <p className="mt-2 text-[10px] text-muted-foreground">المنطقة الحالية: <span className="font-mono">{cropLabel(chatCrop)}</span></p>}
+              <button type="button" onClick={() => setShowOcrTest((value) => !value)} data-testid="toggle-ocr-test" className="mt-3 text-[10px] font-bold text-primary hover:underline">اختبار قراءة الشات</button>
           </div>
         </div>
         <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
@@ -952,13 +1129,14 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
                   <span className="mr-auto font-mono text-[9px] text-muted-foreground">#{message.order ?? index + 1} · {new Date(message.timestamp).toLocaleTimeString('ar', { hour: '2-digit', minute: '2-digit' })}</span>
                 </div>
                 <p className="bidi mt-1 text-sm leading-6">{message.cleanedText ?? message.text}</p>
-                {message.source === 'screen' && <div className="mt-1 flex items-center gap-2 text-[9px] text-muted-foreground"><span>ثقة OCR {Math.round(message.ocrConfidence ?? 0)}%</span><button type="button" onClick={() => correctOcrMessage(message)} className="font-bold text-primary hover:underline">تصحيح</button></div>}
+                 {message.source === 'screen' && <div className="mt-1 flex items-center gap-2 text-[9px] text-muted-foreground"><span>ثقة OCR {Math.round(message.ocrConfidence ?? 0)}%</span><span>{message.geminiCorrected ? 'تصحيح Gemini' : 'OCR محلي'}</span><button type="button" onClick={() => correctOcrMessage(message)} className="font-bold text-primary hover:underline">تصحيح</button></div>}
               </div>
             </div>)}
             {!latestMessages.length && <div className="rounded-xl border border-dashed border-border p-8 text-center"><MessageCircle size={20} className="mx-auto mb-2 text-muted-foreground" /><p className="text-xs font-bold">لا توجد رسائل حقيقية بعد</p><p className="mt-1 text-[10px] leading-5 text-muted-foreground">ابدأ مشاركة الشاشة وحدد منطقة الشات، أو استخدم الإدخال اليدوي كحل احتياطي.</p></div>}
           </div>
           <div className="border-t border-border bg-muted/30 p-3 md:p-4"><div className="grid gap-2 sm:grid-cols-[180px_minmax(0,1fr)_44px]"><input value={manualSpeaker} onChange={(event) => setManualSpeaker(event.target.value)} dir="rtl" data-testid="input-manual-speaker" placeholder="اسم المتحدث الحقيقي" className="rounded-lg border border-border bg-card px-3 py-2.5 text-sm outline-none ring-primary/30 placeholder:text-muted-foreground focus:ring-2" /><input value={manualText} onChange={(event) => setManualText(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') submitManual(); }} dir="rtl" data-testid="input-manual-message" placeholder="الرسالة كما ظهرت في Avakin…" className="min-w-0 rounded-lg border border-border bg-card px-3 py-2.5 text-sm outline-none ring-primary/30 placeholder:text-muted-foreground focus:ring-2" /><button type="button" onClick={submitManual} data-testid="button-add-manual-message" className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground"><Plus size={18} /></button></div><div className="mt-2 flex items-center gap-2 text-[10px] text-muted-foreground"><ShieldCheck size={13} className="text-primary" />حل احتياطي يدوي فقط · لا تُنشأ أسماء أو رسائل تلقائياً</div></div>
         </div>
+        {showOcrTest && <div data-testid="ocr-test-panel" className="rounded-2xl border border-border bg-card p-5 text-xs shadow-sm"><h2 className="font-extrabold">اختبار قراءة الشات</h2>{ocrDebug ? <div className="mt-3 grid gap-3 md:grid-cols-2"><img src={ocrDebug.image} alt="منطقة الشات المقروءة" className="max-h-48 rounded border border-border" /><div className="space-y-2"><p>الأبعاد: {ocrDebug.width} × {ocrDebug.height}</p><p>المعالجة: {ocrDebug.variant}</p><p>الثقة: {Math.round(ocrDebug.confidence)}%</p><p>النص الخام: {ocrDebug.raw}</p><p>النص المنظف: {ocrDebug.cleaned}</p><p>الرسائل: {ocrDebug.parsed.map((item) => `${item.playerName}: ${item.text}`).join(' | ') || 'لا توجد'}</p></div></div> : <p className="mt-2 text-muted-foreground">بانتظار أول قراءة للمنطقة.</p>}</div>}
          <Suggestions suggestions={suggestions} pendingMessages={pendingReplyMessages} messages={messages} players={players} focusedPlayer={focusedPlayer} preferences={preferences} onCopy={(suggestion) => { copyToClipboard(suggestion.generatedText).then(() => { setSuggestions((old) => old.map((item) => item.id === suggestion.id ? { ...item, copiedAt: now() } : item)); setNotice('تم النسخ'); }).catch(() => setNotice('تعذر الوصول للحافظة. حدّد النص وانسخه يدوياً.')); }} onFavorite={toggleFavorite} />
       </section>
       <aside className="space-y-5">

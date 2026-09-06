@@ -8,6 +8,7 @@
 
 export * from './apiError';
 export * from './chatContextMessage';
+export * from './detectedChatMessage';
 export * from './generateRepliesInput';
 export * from './generateRepliesInputMode';
 export * from './generateRepliesResponse';

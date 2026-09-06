@@ -47,6 +47,15 @@ export const generateGeminiRepliesBodyNewMessagesItemTimestampMax = 64;
 
 export const generateGeminiRepliesBodyNewMessagesMax = 8;
 
+export const generateGeminiRepliesBodyCropImageDataUrlMax = 400000;
+
+
+export const generateGeminiRepliesBodyCropImageDataUrlRegExp = new RegExp('^data:image/(jpeg|png);base64,[A-Za-z0-9+/]*={0,2}$');
+export const generateGeminiRepliesBodyLocalOcrTextMax = 6000;
+
+export const generateGeminiRepliesBodyLocalOcrConfidenceMin = 0;
+export const generateGeminiRepliesBodyLocalOcrConfidenceMax = 1;
+
 export const generateGeminiRepliesBodyDialectMax = 40;
 
 export const generateGeminiRepliesBodyDialectStrengthMin = 0;
@@ -109,6 +118,9 @@ export const GenerateGeminiRepliesBody = zod.object({
   "mentionsMe": zod.boolean(),
   "focusedPlayer": zod.boolean()
 })).max(generateGeminiRepliesBodyNewMessagesMax),
+  "cropImageDataUrl": zod.string().max(generateGeminiRepliesBodyCropImageDataUrlMax).regex(generateGeminiRepliesBodyCropImageDataUrlRegExp).optional().describe('JPEG or PNG data URL containing only the cropped chat region.'),
+  "localOcrText": zod.string().max(generateGeminiRepliesBodyLocalOcrTextMax).optional(),
+  "localOcrConfidence": zod.number().min(generateGeminiRepliesBodyLocalOcrConfidenceMin).max(generateGeminiRepliesBodyLocalOcrConfidenceMax).optional(),
   "dialect": zod.string().max(generateGeminiRepliesBodyDialectMax),
   "dialectStrength": zod.number().int().min(generateGeminiRepliesBodyDialectStrengthMin).max(generateGeminiRepliesBodyDialectStrengthMax),
   "mode": zod.enum(['quick', 'calm']),
@@ -129,13 +141,31 @@ export const GenerateGeminiRepliesBody = zod.object({
 export const generateGeminiRepliesResponseSuggestionsMin = 3;
 export const generateGeminiRepliesResponseSuggestionsMax = 3;
 
+export const generateGeminiRepliesResponseDetectedMessagesItemSpeakerMax = 64;
+
+export const generateGeminiRepliesResponseDetectedMessagesItemTextMax = 1000;
+
+export const generateGeminiRepliesResponseDetectedMessagesItemConfidenceMin = 0;
+export const generateGeminiRepliesResponseDetectedMessagesItemConfidenceMax = 1;
+
+export const generateGeminiRepliesResponseDetectedMessagesMax = 30;
+
+export const generateGeminiRepliesResponseTargetPlayerMax = 64;
+
 
 
 export const GenerateGeminiRepliesResponse = zod.object({
   "suggestions": zod.array(zod.object({
   "text": zod.string(),
   "style": zod.enum(['متوازن', 'مباشر', 'خفيف'])
-})).min(generateGeminiRepliesResponseSuggestionsMin).max(generateGeminiRepliesResponseSuggestionsMax)
+})).min(generateGeminiRepliesResponseSuggestionsMin).max(generateGeminiRepliesResponseSuggestionsMax),
+  "detectedMessages": zod.array(zod.object({
+  "speaker": zod.string().min(1).max(generateGeminiRepliesResponseDetectedMessagesItemSpeakerMax),
+  "text": zod.string().min(1).max(generateGeminiRepliesResponseDetectedMessagesItemTextMax),
+  "isNew": zod.boolean(),
+  "confidence": zod.number().min(generateGeminiRepliesResponseDetectedMessagesItemConfidenceMin).max(generateGeminiRepliesResponseDetectedMessagesItemConfidenceMax)
+})).max(generateGeminiRepliesResponseDetectedMessagesMax).optional(),
+  "targetPlayer": zod.string().max(generateGeminiRepliesResponseTargetPlayerMax).optional()
 })
 
 
