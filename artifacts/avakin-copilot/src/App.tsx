@@ -1,4 +1,4 @@
-import { type ChangeEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { type ChangeEvent, type PointerEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -32,6 +32,42 @@ type ChatMessage = { id: string; playerId: string; playerName: string; text: str
 type ReplySuggestion = { id: string; sourceMessageId: string; playerId: string; generatedText: string; style: SuggestionStyle; generatedAt: string; copiedAt?: string; favorite: boolean; };
 type Session = { id: string; name: string; createdAt: string; updatedAt: string; messageCount: number; replyCount: number; };
 type UserPreferences = { mode: Mode; theme: Theme; learnStyle: boolean; showTranslation: boolean; privacyCapture: boolean; compactMode: boolean; };
+type Crop = { x: number; y: number; width: number; height: number; };
+type CropInteraction = 'move' | 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
+
+const DEFAULT_CHAT_CROP: Crop = { x: 0.05, y: 0.08, width: 0.9, height: 0.53 };
+const MIN_CROP_SIZE = 0.1;
+
+function clampCrop(crop: Crop): Crop {
+  const width = Math.min(1, Math.max(MIN_CROP_SIZE, crop.width));
+  const height = Math.min(1, Math.max(MIN_CROP_SIZE, crop.height));
+  return {
+    x: Math.min(1 - width, Math.max(0, crop.x)),
+    y: Math.min(1 - height, Math.max(0, crop.y)),
+    width,
+    height,
+  };
+}
+
+function updateCropFromPointer(startCrop: Crop, interaction: CropInteraction, deltaX: number, deltaY: number): Crop {
+  if (interaction === 'move') {
+    return clampCrop({ ...startCrop, x: startCrop.x + deltaX, y: startCrop.y + deltaY });
+  }
+
+  const left = interaction.includes('w') ? startCrop.x + deltaX : startCrop.x;
+  const right = interaction.includes('e') ? startCrop.x + startCrop.width + deltaX : startCrop.x + startCrop.width;
+  const top = interaction.includes('n') ? startCrop.y + deltaY : startCrop.y;
+  const bottom = interaction.includes('s') ? startCrop.y + startCrop.height + deltaY : startCrop.y + startCrop.height;
+  const boundedLeft = interaction.includes('w') ? Math.min(Math.max(0, left), right - MIN_CROP_SIZE) : startCrop.x;
+  const boundedRight = interaction.includes('e') ? Math.max(Math.min(1, right), boundedLeft + MIN_CROP_SIZE) : startCrop.x + startCrop.width;
+  const boundedTop = interaction.includes('n') ? Math.min(Math.max(0, top), bottom - MIN_CROP_SIZE) : startCrop.y;
+  const boundedBottom = interaction.includes('s') ? Math.max(Math.min(1, bottom), boundedTop + MIN_CROP_SIZE) : startCrop.y + startCrop.height;
+  return clampCrop({ x: boundedLeft, y: boundedTop, width: boundedRight - boundedLeft, height: boundedBottom - boundedTop });
+}
+
+function cropLabel(crop: Crop) {
+  return `${Math.round(crop.x * 100)}%, ${Math.round(crop.y * 100)}% · ${Math.round(crop.width * 100)}% × ${Math.round(crop.height * 100)}%`;
+}
 
 const uid = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
 const now = () => new Date().toISOString();
@@ -212,6 +248,61 @@ function PageHeading({ eyebrow, title, description, action }: { eyebrow: string;
   return <div className="mb-7 flex flex-col justify-between gap-4 md:flex-row md:items-end"><div><div className="mb-2 flex items-center gap-2 font-mono text-[10px] font-medium uppercase tracking-[.2em] text-primary"><span className="h-px w-5 bg-primary" />{eyebrow}</div><h1 className="text-2xl font-extrabold tracking-tight md:text-3xl">{title}</h1>{description && <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">{description}</p>}</div>{action}</div>;
 }
 
+function CropSelector({ crop, onChange, disabled = false }: { crop: Crop; onChange: (crop: Crop) => void; disabled?: boolean }) {
+  const selectorRef = useRef<HTMLDivElement | null>(null);
+  const interactionRef = useRef<{ type: CropInteraction; startX: number; startY: number; crop: Crop } | null>(null);
+  const handles: Array<{ type: Exclude<CropInteraction, 'move'>; label: string }> = [
+    { type: 'nw', label: 'تكبير أو تصغير من أعلى اليمين' },
+    { type: 'n', label: 'تغيير الحد العلوي' },
+    { type: 'ne', label: 'تكبير أو تصغير من أعلى اليسار' },
+    { type: 'e', label: 'تغيير الحد الأيمن' },
+    { type: 'se', label: 'تكبير أو تصغير من أسفل اليسار' },
+    { type: 's', label: 'تغيير الحد السفلي' },
+    { type: 'sw', label: 'تكبير أو تصغير من أسفل اليمين' },
+    { type: 'w', label: 'تغيير الحد الأيسر' },
+  ];
+  const getRelativePoint = (event: PointerEvent) => {
+    const bounds = selectorRef.current?.getBoundingClientRect();
+    if (!bounds || !bounds.width || !bounds.height) return { x: 0, y: 0 };
+    return {
+      x: Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width)),
+      y: Math.min(1, Math.max(0, (event.clientY - bounds.top) / bounds.height)),
+    };
+  };
+  const beginInteraction = (event: PointerEvent, type: CropInteraction) => {
+    if (disabled || event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const point = getRelativePoint(event);
+    interactionRef.current = { type, startX: point.x, startY: point.y, crop };
+    selectorRef.current?.setPointerCapture(event.pointerId);
+  };
+  const updateInteraction = (event: PointerEvent) => {
+    const interaction = interactionRef.current;
+    if (!interaction) return;
+    event.preventDefault();
+    const point = getRelativePoint(event);
+    onChange(updateCropFromPointer(interaction.crop, interaction.type, point.x - interaction.startX, point.y - interaction.startY));
+  };
+  const endInteraction = (event: PointerEvent) => {
+    if (!interactionRef.current) return;
+    if (selectorRef.current?.hasPointerCapture(event.pointerId)) selectorRef.current.releasePointerCapture(event.pointerId);
+    interactionRef.current = null;
+  };
+  return <div ref={selectorRef} className={`absolute inset-0 select-none ${disabled ? '' : 'touch-none'}`} onPointerMove={updateInteraction} onPointerUp={endInteraction} onPointerCancel={endInteraction}>
+    <div
+      className={`crop-selection absolute ${disabled ? '' : 'cursor-move'}`}
+      style={{ left: `${crop.x * 100}%`, top: `${crop.y * 100}%`, width: `${crop.width * 100}%`, height: `${crop.height * 100}%` }}
+      onPointerDown={(event) => beginInteraction(event, 'move')}
+      data-testid="crop-selection"
+      aria-label="منطقة الدردشة المحددة"
+    >
+      <span className="crop-selection-label">CHAT REGION</span>
+      {!disabled && handles.map(({ type, label }) => <button key={type} type="button" aria-label={label} className={`crop-handle crop-handle-${type}`} onPointerDown={(event) => beginInteraction(event, type)} />)}
+    </div>
+  </div>;
+}
+
 function StatusPill({ children, tone = 'teal' }: { children: ReactNode; tone?: 'teal' | 'amber' | 'muted' }) {
   return <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${tone === 'teal' ? 'bg-primary/10 text-primary' : tone === 'amber' ? 'bg-accent/20 text-accent-foreground' : 'bg-muted text-muted-foreground'}`}>{tone === 'teal' && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}{children}</span>;
 }
@@ -222,6 +313,9 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
   const [ocrState, setOcrState] = useState<'idle' | 'watching' | 'reading' | 'unavailable'>('idle');
   const [aiState, setAiState] = useState<'ready' | 'working' | 'paused'>('ready');
   const [calibrated, setCalibrated] = useState(false);
+  const [chatCrop, setChatCrop] = useState<Crop>(DEFAULT_CHAT_CROP);
+  const [calibrationDraft, setCalibrationDraft] = useState<Crop>(DEFAULT_CHAT_CROP);
+  const [calibrationOpen, setCalibrationOpen] = useState(false);
   const [manualText, setManualText] = useState('');
   const [notice, setNotice] = useState('');
   const [focusedId, setFocusedId] = useState(players.find((player) => player.focused)?.id ?? players[0]?.id);
@@ -322,6 +416,10 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     lastFrameSignature.current = null;
+    setChatCrop(DEFAULT_CHAT_CROP);
+    setCalibrationDraft(DEFAULT_CHAT_CROP);
+    setCalibrated(false);
+    setCalibrationOpen(false);
     setCaptureState('idle');
     setOcrState('idle');
     setNotice('تم إيقاف الالتقاط وتنظيف المصدر من الذاكرة.');
@@ -343,13 +441,30 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
       stream.getVideoTracks()[0]?.addEventListener('ended', () => {
         streamRef.current = null;
         lastFrameSignature.current = null;
+        setChatCrop(DEFAULT_CHAT_CROP);
+        setCalibrationDraft(DEFAULT_CHAT_CROP);
+        setCalibrated(false);
+        setCalibrationOpen(false);
         setCaptureState('ended');
         setOcrState('idle');
         setNotice('انتهت مشاركة الشاشة. لم يتم حفظ أي لقطة.');
       });
     } catch { setCaptureState('denied'); setNotice('لم يتم السماح بمشاركة الشاشة. لا مشكلة — اكتب الرسالة يدوياً أو استخدم صورة.'); }
   };
-  const calibrate = () => { setCalibrated(true); setOcrState(captureState === 'capturing' ? 'watching' : 'idle'); setNotice('تم حفظ منطقة الدردشة لهذه الجلسة فقط. تتم مقارنة التغيّر وقراءة OCR محلياً عند الحاجة.'); };
+  const openCalibration = () => { setCalibrationDraft(chatCrop); setCalibrationOpen(true); };
+  const cancelCalibration = () => { setCalibrationDraft(chatCrop); setCalibrationOpen(false); };
+  const saveCalibration = () => {
+    if (captureState !== 'capturing') {
+      setNotice('ابدأ مشاركة الشاشة أولاً حتى تحدد منطقة حقيقية من المعاينة.');
+      return;
+    }
+    setChatCrop(clampCrop(calibrationDraft));
+    setCalibrated(true);
+    setCalibrationOpen(false);
+    setOcrState('watching');
+    lastFrameSignature.current = null;
+    setNotice('تم حفظ منطقة الدردشة لهذه الجلسة فقط. تتم مقارنة التغيّر وقراءة OCR محلياً عند الحاجة.');
+  };
   const submitManual = () => {
     const accepted = addMessage(manualText, focusedId, 'manual');
     if (accepted) {
@@ -382,9 +497,15 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
     const timer = window.setInterval(async () => {
       if (frameBusy.current || video.readyState < 2 || Date.now() - lastOcrAt.current < 1500) return;
       canvas.width = 640;
-      canvas.height = 360;
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const pixels = context.getImageData(32, 30, 576, 190).data;
+       const sourceWidth = video.videoWidth || 640;
+       const sourceHeight = video.videoHeight || 360;
+       const sourceX = Math.round(sourceWidth * chatCrop.x);
+       const sourceY = Math.round(sourceHeight * chatCrop.y);
+       const sourceCropWidth = Math.min(sourceWidth - sourceX, Math.max(1, Math.round(sourceWidth * chatCrop.width)));
+       const sourceCropHeight = Math.min(sourceHeight - sourceY, Math.max(1, Math.round(sourceHeight * chatCrop.height)));
+       canvas.height = Math.max(1, Math.round(canvas.width * sourceCropHeight / sourceCropWidth));
+       context.drawImage(video, sourceX, sourceY, sourceCropWidth, sourceCropHeight, 0, 0, canvas.width, canvas.height);
+       const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
       let signature = 0;
       for (let index = 0; index < pixels.length; index += 32) signature += pixels[index] + pixels[index + 1] + pixels[index + 2];
       const previous = lastFrameSignature.current;
@@ -400,7 +521,7 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
       if (accepted) void requestAiRef.current(accepted);
     }, 1600);
     return () => window.clearInterval(timer);
-  }, [captureState, calibrated, focusedId]);
+   }, [captureState, calibrated, chatCrop, focusedId]);
   useEffect(() => () => {
     aiAbortRef.current?.abort();
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -409,7 +530,6 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
   const focus = (id: string) => { setFocusedId(id); setPlayers((old) => old.map((player) => ({ ...player, focused: player.id === id }))); };
   const modeLabel = preferences.mode === 'quick' ? 'سريع' : 'هادئ';
   return <div className="space-y-5">
-    <video ref={videoRef} className="hidden" muted playsInline />
     <canvas ref={canvasRef} className="hidden" />
     <PageHeading eyebrow="live workspace / 01" title="المساعد الحي" description="خلّك داخل اللحظة. نقرأ ما تختاره، نفهم السياق، ونترك لك القرار الأخير." action={<div className="flex items-center gap-2"><StatusPill>{modeLabel} mode</StatusPill><StatusPill tone="muted">العربية · {dialect.dialect}</StatusPill></div>} />
     {notice && <div className="flex items-center justify-between rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-xs text-primary rise"><span>{notice}</span><button type="button" onClick={() => setNotice('')} data-testid="button-dismiss-notice"><X size={14} /></button></div>}
@@ -426,10 +546,27 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
             </div>
             <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-muted-foreground"><span className="flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${captureState === 'capturing' ? 'bg-primary' : captureState === 'denied' || captureState === 'ended' ? 'bg-accent' : 'bg-muted-foreground/40'}`} />الشاشة: {captureState === 'capturing' ? 'متصلة' : captureState === 'denied' ? 'مرفوضة' : captureState === 'ended' ? 'انتهت' : 'غير متصلة'}</span><span>الشات: {calibrated ? 'جاهز' : 'غير محدد'}</span><span>OCR: {ocrState === 'reading' ? 'يقرأ' : ocrState === 'unavailable' ? 'غير متاح' : ocrState === 'watching' ? 'يراقب التغيّر' : 'متوقف'}</span><span>AI: {aiState === 'working' ? 'يحلل' : aiState === 'paused' ? 'متوقف مؤقتاً' : 'جاهز'}</span></div>
           </div>
-          <div className="rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">
+           <div className="rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">
             <div className="flex items-center justify-between"><div><div className="mb-2 flex items-center gap-2 text-xs font-bold text-primary"><Focus size={15} />معايرة سريعة</div><h2 className="text-lg font-extrabold">حدد فقاعة الدردشة</h2></div><StatusPill tone={calibrated ? 'teal' : 'muted'}>{calibrated ? 'تم التحديد' : 'مطلوب مرة واحدة'}</StatusPill></div>
-            <div className={`relative mt-5 h-24 overflow-hidden rounded-xl border-2 border-dashed ${calibrated ? 'border-primary/50 bg-primary/5' : 'border-border bg-muted/50'}`}><div className="absolute inset-x-7 top-4 rounded-md bg-card px-3 py-2 text-right text-[10px] shadow-sm"><span className="font-bold text-primary">Nour Alia</span><span className="mr-2 text-muted-foreground">وينكم؟ الجلسة حلوة اليوم</span></div><div className="absolute inset-x-12 bottom-3 h-px bg-accent/70" /><span className="absolute bottom-1 left-2 font-mono text-[8px] text-muted-foreground">CHAT REGION</span></div>
-            <button type="button" onClick={calibrate} data-testid="button-calibrate-chat" className="mt-3 inline-flex items-center gap-2 text-xs font-bold text-primary hover:underline"><Focus size={14} />{calibrated ? 'إعادة تحديد المنطقة' : 'اضغط لتحديد المنطقة'}</button>
+             <div className={`mt-5 overflow-hidden rounded-xl border ${calibrationOpen ? 'border-primary/40 bg-background' : 'border-border bg-muted/50'}`}>
+               <div className={calibrationOpen ? 'p-3' : 'hidden'}>
+                 <div className="mb-3 flex items-start justify-between gap-3">
+                   <div><p className="text-xs font-bold">اسحب الإطار فوق رسائل الشات</p><p className="mt-1 text-[10px] leading-5 text-muted-foreground">حرّك الإطار من داخله أو استخدم المقابض لتغيير حجمه.</p></div>
+                   <button type="button" onClick={cancelCalibration} data-testid="button-cancel-calibration" className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted" aria-label="إغلاق المعايرة"><X size={15} /></button>
+                 </div>
+                 <div className="relative aspect-video overflow-hidden rounded-lg bg-slate-950">
+                   <video ref={videoRef} className={`absolute inset-0 h-full w-full object-fill ${captureState === 'capturing' ? '' : 'hidden'}`} muted playsInline />
+                   {captureState === 'capturing' ? <CropSelector crop={calibrationDraft} onChange={setCalibrationDraft} /> : <div className="absolute inset-0 grid place-items-center p-6 text-center text-xs text-white/75"><div><Monitor size={22} className="mx-auto mb-2 text-accent" /><p className="font-bold text-white">المعاينة تظهر بعد بدء مشاركة الشاشة</p><p className="mt-1 text-[10px] leading-5">ابدأ المشاركة ثم افتح المعايرة لتحديد الشات بدقة.</p></div></div>}
+                 </div>
+                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                   <span className="font-mono text-[10px] text-muted-foreground" data-testid="text-crop-coordinates">{cropLabel(calibrationDraft)}</span>
+                   <button type="button" onClick={saveCalibration} disabled={captureState !== 'capturing'} data-testid="button-save-calibration" className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-[11px] font-bold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"><Check size={14} />حفظ المنطقة</button>
+                 </div>
+               </div>
+               <div className={`relative h-24 ${calibrationOpen ? 'hidden' : calibrated ? 'bg-primary/5' : 'bg-muted/50'}`}><div className="absolute inset-x-7 top-4 rounded-md bg-card px-3 py-2 text-right text-[10px] shadow-sm"><span className="font-bold text-primary">Nour Alia</span><span className="mr-2 text-muted-foreground">وينكم؟ الجلسة حلوة اليوم</span></div><div className="absolute inset-x-12 bottom-3 h-px bg-accent/70" /><span className="absolute bottom-1 left-2 font-mono text-[8px] text-muted-foreground">LIVE PREVIEW</span></div>
+             </div>
+             <button type="button" onClick={openCalibration} data-testid="button-calibrate-chat" className="mt-3 inline-flex items-center gap-2 text-xs font-bold text-primary hover:underline"><Focus size={14} />{calibrated ? 'إعادة تحديد المنطقة' : 'فتح معاينة وتحديد المنطقة'}</button>
+             {calibrated && <p className="mt-2 text-[10px] text-muted-foreground">المنطقة الحالية: <span className="font-mono">{cropLabel(chatCrop)}</span></p>}
           </div>
         </div>
         <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">

@@ -97,3 +97,14 @@
 .scrollbar-thin::-webkit-scrollbar { width: 5px; height: 5px; }
 .scrollbar-thin::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 99px; }
 .bidi { direction: rtl; text-align: right; }
+.crop-selection { border: 2px solid hsl(var(--accent)); background: hsl(var(--accent) / .08); box-shadow: 0 0 0 9999px rgb(10 18 24 / .42), 0 0 0 1px hsl(var(--accent) / .35); touch-action: none; }
+.crop-selection-label { position: absolute; left: 6px; top: 5px; border-radius: 4px; background: hsl(var(--accent)); color: hsl(var(--accent-foreground)); padding: 2px 5px; font: 500 8px/1 var(--app-font-mono); letter-spacing: .08em; pointer-events: none; }
+.crop-handle { position: absolute; z-index: 2; width: 16px; height: 16px; border: 2px solid hsl(var(--accent)); border-radius: 4px; background: hsl(var(--card)); box-shadow: 0 1px 4px rgb(0 0 0 / .22); transform: translate(-50%, -50%); touch-action: none; }
+.crop-handle-nw { left: 0; top: 0; cursor: nwse-resize; }
+.crop-handle-n { left: 50%; top: 0; cursor: ns-resize; }
+.crop-handle-ne { left: 100%; top: 0; cursor: nesw-resize; }
+.crop-handle-e { left: 100%; top: 50%; cursor: ew-resize; }
+.crop-handle-se { left: 100%; top: 100%; cursor: nwse-resize; }
+.crop-handle-s { left: 50%; top: 100%; cursor: ns-resize; }
+.crop-handle-sw { left: 0; top: 100%; cursor: nesw-resize; }
+.crop-handle-w { left: 0; top: 50%; cursor: ew-resize; }
