@@ -29,9 +29,10 @@ An Arabic-first, privacy-focused conversation companion for Avakin Life that pre
 
 ## Architecture decisions
 
-- The first MVP is local-first: browser storage holds user-selected settings, personalities, favorites, reply history, and explicit saved sessions.
+- The first MVP is local-first: IndexedDB holds user-selected settings, personalities, favorites, reply history, and explicit saved sessions.
 - Screen capture uses the browser's user-authorized `getDisplayMedia` flow; stopping the assistant cleans up tracks and temporary capture state.
-- OCR is represented as an upgrade-ready boundary with honest manual/demo input states instead of claiming unsupported browser OCR is active.
+- OCR uses free client-side Tesseract.js behind an upgrade-ready boundary, and screen frames are compared locally before OCR runs.
+- Gemini generation uses only the server-side `GEMINI_API_KEY` and the requested Free Tier model; quota failures never trigger a paid fallback.
 - Suggestions always end at copy-to-clipboard; the app never types or sends messages into Avakin.
 
 ## Product
@@ -45,6 +46,7 @@ Arabic is the default interface language. The product should stay premium, respo
 ## Gotchas
 
 - Browser screen capture and clipboard behavior depend on explicit browser permissions and cannot be silently enabled.
+- Tesseract.js downloads and caches its Arabic language data on first use; if that is unavailable, manual input remains the fallback.
 - The app must preserve manual copy/paste as the final user-controlled action and must not add unofficial Avakin integrations.
 
 ## Pointers

@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: gemini
+    description: Free-tier Gemini reply generation
 paths:
   /healthz:
     get:
@@ -24,6 +26,43 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /gemini/generate-replies:
+    post:
+      operationId: generateGeminiReplies
+      tags: [gemini]
+      summary: Generate three reply suggestions
+      description: Generates compact reply suggestions through the server-side Gemini Free Tier route.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateRepliesInput"
+      responses:
+        "200":
+          description: Three reply suggestions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenerateRepliesResponse"
+        "429":
+          description: Free-tier quota is temporarily exhausted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "502":
+          description: Gemini response unavailable or malformed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: Gemini key is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
 components:
   schemas:
     HealthStatus:
@@ -33,4 +72,100 @@ components:
           type: string
       required:
         - status
+    PersonalityInput:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        warmth:
+          type: integer
+        humor:
+          type: integer
+        confidence:
+          type: integer
+        directness:
+          type: integer
+        playfulness:
+          type: integer
+        responseLength:
+          type: string
+        preferredWords:
+          type: array
+          items:
+            type: string
+        blockedWords:
+          type: array
+          items:
+            type: string
+      required:
+        - name
+        - description
+        - warmth
+        - humor
+        - confidence
+        - directness
+        - playfulness
+        - responseLength
+        - preferredWords
+        - blockedWords
+    GenerateRepliesInput:
+      type: object
+      properties:
+        message:
+          type: string
+          minLength: 1
+        recentMessages:
+          type: array
+          items:
+            type: string
+          maxItems: 8
+        dialect:
+          type: string
+        dialectStrength:
+          type: integer
+          minimum: 0
+          maximum: 100
+        mode:
+          type: string
+          enum: [quick, calm]
+        personality:
+          $ref: "#/components/schemas/PersonalityInput"
+      required:
+        - message
+        - recentMessages
+        - dialect
+        - dialectStrength
+        - mode
+        - personality
+    ReplySuggestion:
+      type: object
+      properties:
+        text:
+          type: string
+        style:
+          type: string
+          enum: [متوازن, مباشر, خفيف]
+      required:
+        - text
+        - style
+    GenerateRepliesResponse:
+      type: object
+      properties:
+        suggestions:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/ReplySuggestion"
+      required:
+        - suggestions
+    ApiError:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
 

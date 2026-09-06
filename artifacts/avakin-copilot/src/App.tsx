@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { type ChangeEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -58,12 +58,66 @@ const initialSuggestions: ReplySuggestion[] = [
   { id: 's-3', sourceMessageId: 'm-1', playerId: 'p-nour', generatedText: 'حاضرين يا نجوم، بس نحتاج دخول درامي بسيط.', style: 'خفيف', generatedAt: ago(1), favorite: false },
 ];
 
-function readStore<T>(key: string, fallback: T): T {
-  try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) as T : fallback; } catch { return fallback; }
+const STORAGE_DB = 'avakin-copilot-local';
+const STORAGE_STORE = 'key-value';
+
+function openStorage(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB) {
+      reject(new Error('indexeddb-unavailable'));
+      return;
+    }
+    const request = window.indexedDB.open(STORAGE_DB, 1);
+    request.onupgradeneeded = () => {
+      request.result.createObjectStore(STORAGE_STORE);
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error('indexeddb-open-failed'));
+  });
 }
+
+async function readStore<T>(key: string, fallback: T): Promise<T> {
+  try {
+    const database = await openStorage();
+    return await new Promise<T>((resolve, reject) => {
+      const request = database.transaction(STORAGE_STORE, 'readonly').objectStore(STORAGE_STORE).get(key);
+      request.onsuccess = () => resolve((request.result as T | undefined) ?? fallback);
+      request.onerror = () => reject(request.error ?? new Error('indexeddb-read-failed'));
+    });
+  } catch {
+    return fallback;
+  }
+}
+
+async function writeStore<T>(key: string, value: T) {
+  try {
+    const database = await openStorage();
+    await new Promise<void>((resolve, reject) => {
+      const request = database.transaction(STORAGE_STORE, 'readwrite').objectStore(STORAGE_STORE).put(value, key);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error ?? new Error('indexeddb-write-failed'));
+    });
+  } catch {
+    // Local-first data remains in React state for this session if IndexedDB is unavailable.
+  }
+}
+
 function usePersisted<T>(key: string, fallback: T): [T, (value: T | ((old: T) => T)) => void] {
-  const [value, setValue] = useState<T>(() => readStore(key, fallback));
-  useEffect(() => { localStorage.setItem(key, JSON.stringify(value)); }, [key, value]);
+  const [value, setValue] = useState<T>(fallback);
+  const hydrated = useRef(false);
+  useEffect(() => {
+    let active = true;
+    void readStore(key, fallback).then((stored) => {
+      if (active) {
+        setValue(stored);
+        hydrated.current = true;
+      }
+    });
+    return () => { active = false; };
+  }, [key]);
+  useEffect(() => {
+    if (hydrated.current) void writeStore(key, value);
+  }, [key, value]);
   return [value, setValue];
 }
 
@@ -78,11 +132,11 @@ function useCopilotStore() {
   const [sessions, setSessions] = usePersisted<Session[]>('avakin.sessions', []);
   const [history, setHistory] = usePersisted<ReplySuggestion[]>('avakin.history', []);
   const activeProfile = profiles.find((profile) => profile.id === activeProfileId) ?? profiles[0];
-  const addMessage = (text: string, playerId = 'p-nour', source: Source = 'manual') => {
+  const addMessage = (text: string, playerId = 'p-nour', source: Source = 'manual'): ChatMessage | null => {
     const clean = text.trim();
-    if (!clean) return false;
+    if (!clean) return null;
     const normalized = clean.toLocaleLowerCase().replace(/\s+/g, ' ');
-    if (messages.some((message) => message.text.toLocaleLowerCase().replace(/\s+/g, ' ') === normalized)) return false;
+    if (messages.some((message) => message.text.toLocaleLowerCase().replace(/\s+/g, ' ') === normalized)) return null;
     const player = players.find((item) => item.id === playerId) ?? players[0];
     const message: ChatMessage = { id: uid('m'), playerId: player.id, playerName: player.name, text: clean, timestamp: now(), target: 'you', isDirect: true, isConflict: /زعل|مشكلة|ليش|كذاب|غلط/i.test(clean), source };
     setMessages((old) => [...old, message]);
@@ -93,7 +147,7 @@ function useCopilotStore() {
       { id: uid('s'), sourceMessageId: message.id, playerId: player.id, generatedText: `أوكي، بس لا نخلي الموضوع يصير اجتماع رسمي فجأة.`, style: 'خفيف', generatedAt: now(), favorite: false },
     ];
     setSuggestions(generated);
-    return true;
+    return message;
   };
   const toggleFavorite = (id: string) => {
     setSuggestions((old) => old.map((item) => item.id === id ? { ...item, favorite: !item.favorite } : item));
@@ -165,28 +219,198 @@ function StatusPill({ children, tone = 'teal' }: { children: ReactNode; tone?: '
 function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> }) {
   const { messages, players, suggestions, preferences, setPreferences, addMessage, setPlayers, toggleFavorite, setSuggestions, activeProfile, dialect } = store;
   const [captureState, setCaptureState] = useState<'idle' | 'requesting' | 'capturing' | 'denied' | 'ended'>('idle');
+  const [ocrState, setOcrState] = useState<'idle' | 'watching' | 'reading' | 'unavailable'>('idle');
+  const [aiState, setAiState] = useState<'ready' | 'working' | 'paused'>('ready');
   const [calibrated, setCalibrated] = useState(false);
   const [manualText, setManualText] = useState('');
   const [notice, setNotice] = useState('');
   const [focusedId, setFocusedId] = useState(players.find((player) => player.focused)?.id ?? players[0]?.id);
   const streamRef = useRef<MediaStream | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const lastFrameSignature = useRef<number | null>(null);
+  const lastOcrAt = useRef(0);
+  const frameBusy = useRef(false);
+  const aiAbortRef = useRef<AbortController | null>(null);
+  const ocrWorkerRef = useRef<{ recognize: (image: Blob | HTMLCanvasElement) => Promise<{ data: { text: string } }>; terminate: () => Promise<unknown> } | null>(null);
+  const addMessageRef = useRef(addMessage);
+  const requestAiRef = useRef<(message: ChatMessage) => Promise<void>>(async () => undefined);
+  const ocrRef = useRef<(image: Blob | HTMLCanvasElement) => Promise<string>>(async () => '');
   const focusedPlayer = players.find((player) => player.id === focusedId) ?? players[0];
   const latestMessages = messages.slice(-5);
-  const stopCapture = () => { streamRef.current?.getTracks().forEach((track) => track.stop()); streamRef.current = null; setCaptureState('idle'); setNotice('تم إيقاف الالتقاط وتنظيف المصدر من الذاكرة.'); };
+  const requestAi = async (message: ChatMessage) => {
+    aiAbortRef.current?.abort();
+    const controller = new AbortController();
+    aiAbortRef.current = controller;
+    setAiState('working');
+    try {
+      const response = await fetch('/api/gemini/generate-replies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          message: message.text,
+          recentMessages: [...messages.slice(-7).map((item) => `${item.playerName}: ${item.text}`), `${message.playerName}: ${message.text}`],
+          dialect: dialect.dialect,
+          dialectStrength: dialect.strength,
+          mode: preferences.mode,
+          personality: {
+            name: activeProfile?.name ?? initialProfile.name,
+            description: activeProfile?.description ?? initialProfile.description,
+            warmth: activeProfile?.warmth ?? initialProfile.warmth,
+            humor: activeProfile?.humor ?? initialProfile.humor,
+            confidence: activeProfile?.confidence ?? initialProfile.confidence,
+            directness: activeProfile?.directness ?? initialProfile.directness,
+            playfulness: activeProfile?.playfulness ?? initialProfile.playfulness,
+            responseLength: activeProfile?.responseLength ?? initialProfile.responseLength,
+            preferredWords: activeProfile?.preferredWords ?? initialProfile.preferredWords,
+            blockedWords: activeProfile?.blockedWords ?? initialProfile.blockedWords,
+          },
+        }),
+      });
+      const payload = await response.json() as { error?: string; suggestions?: Array<{ text: string; style: SuggestionStyle }> };
+      if (!response.ok || !payload.suggestions?.length) {
+        if (!controller.signal.aborted) {
+          setAiState('paused');
+          setNotice(payload.error ?? 'تعذر الوصول للذكاء الاصطناعي. الردود المحلية ما زالت متاحة.');
+        }
+        return;
+      }
+      if (controller.signal.aborted) return;
+      setSuggestions(payload.suggestions.map((item, index) => ({
+        id: uid('ai'),
+        sourceMessageId: message.id,
+        playerId: message.playerId,
+        generatedText: item.text,
+        style: item.style ?? (['متوازن', 'مباشر', 'خفيف'] as const)[index],
+        generatedAt: now(),
+        favorite: false,
+      })));
+      setAiState('ready');
+    } catch {
+      if (!controller.signal.aborted) {
+        setAiState('paused');
+        setNotice('تعذر الاتصال بالذكاء الاصطناعي. الردود المحلية ما زالت متاحة.');
+      }
+    }
+  };
+  const runOcr = async (image: Blob | HTMLCanvasElement) => {
+    if (frameBusy.current) return '';
+    frameBusy.current = true;
+    setOcrState('reading');
+    try {
+      if (!ocrWorkerRef.current) {
+        const { createWorker } = await import('tesseract.js');
+        ocrWorkerRef.current = await createWorker('ara') as unknown as NonNullable<typeof ocrWorkerRef.current>;
+      }
+      const result = await ocrWorkerRef.current.recognize(image);
+      return result.data.text.replace(/\s+/g, ' ').trim();
+    } catch {
+      setOcrState('unavailable');
+      setNotice('تعذر تشغيل القراءة المحلية. يمكنك إدخال نص الرسالة يدوياً.');
+      return '';
+    } finally {
+      frameBusy.current = false;
+      setOcrState(captureState === 'capturing' && calibrated ? 'watching' : 'idle');
+    }
+  };
+  addMessageRef.current = addMessage;
+  requestAiRef.current = requestAi;
+  ocrRef.current = runOcr;
+  const stopCapture = () => {
+    aiAbortRef.current?.abort();
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    lastFrameSignature.current = null;
+    setCaptureState('idle');
+    setOcrState('idle');
+    setNotice('تم إيقاف الالتقاط وتنظيف المصدر من الذاكرة.');
+  };
   const startCapture = async () => {
     if (!preferences.privacyCapture) { setNotice('التقاط الشاشة موقوف من الإعدادات. فعّله أولاً إذا أردت استخدام المشاركة.'); return; }
     if (!navigator.mediaDevices?.getDisplayMedia) { setCaptureState('denied'); setNotice('المتصفح لا يدعم مشاركة الشاشة. استخدم الإدخال اليدوي حالياً.'); return; }
     setCaptureState('requesting'); setNotice('');
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
-      streamRef.current = stream; setCaptureState('capturing'); setNotice('الشاشة متصلة. اختر منطقة الدردشة لتحديد ما نقرأه.'); stream.getVideoTracks()[0]?.addEventListener('ended', () => { streamRef.current = null; setCaptureState('ended'); setNotice('انتهت مشاركة الشاشة. لم يتم حفظ أي لقطة.'); });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(() => undefined);
+      }
+      setCaptureState('capturing');
+      setOcrState(calibrated ? 'watching' : 'idle');
+      setNotice('الشاشة متصلة. حدد منطقة الدردشة لبدء القراءة المحلية.');
+      stream.getVideoTracks()[0]?.addEventListener('ended', () => {
+        streamRef.current = null;
+        lastFrameSignature.current = null;
+        setCaptureState('ended');
+        setOcrState('idle');
+        setNotice('انتهت مشاركة الشاشة. لم يتم حفظ أي لقطة.');
+      });
     } catch { setCaptureState('denied'); setNotice('لم يتم السماح بمشاركة الشاشة. لا مشكلة — اكتب الرسالة يدوياً أو استخدم صورة.'); }
   };
-  const calibrate = () => { setCalibrated(true); setNotice('تم حفظ منطقة الدردشة لهذه الجلسة فقط. OCR غير مفعّل في نسخة العرض.'); };
-  const submitManual = () => { const accepted = addMessage(manualText, focusedId, 'manual'); if (accepted) { setManualText(''); setNotice('تمت إضافة الرسالة وتحضير 3 ردود مختلفة.'); } else if (manualText.trim()) setNotice('هذه الرسالة موجودة مسبقاً أو فارغة.'); };
+  const calibrate = () => { setCalibrated(true); setOcrState(captureState === 'capturing' ? 'watching' : 'idle'); setNotice('تم حفظ منطقة الدردشة لهذه الجلسة فقط. تتم مقارنة التغيّر وقراءة OCR محلياً عند الحاجة.'); };
+  const submitManual = () => {
+    const accepted = addMessage(manualText, focusedId, 'manual');
+    if (accepted) {
+      setManualText('');
+      setNotice('تمت إضافة الرسالة وتحضير 3 ردود مختلفة.');
+      void requestAi(accepted);
+    } else if (manualText.trim()) setNotice('هذه الرسالة موجودة مسبقاً أو فارغة.');
+  };
+  const handleScreenshot = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.currentTarget.value = '';
+    if (!file) return;
+    const text = await runOcr(file);
+    if (!text) return;
+    const accepted = addMessage(text, focusedId, 'screen');
+    if (accepted) {
+      setNotice('تمت قراءة الصورة محلياً وإضافة الرسالة. لا تغادر الصورة جهازك.');
+      void requestAi(accepted);
+    } else {
+      setNotice('هذه الرسالة موجودة مسبقاً.');
+    }
+  };
+  useEffect(() => {
+    if (captureState !== 'capturing' || !calibrated) return;
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas) return;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) return;
+    const timer = window.setInterval(async () => {
+      if (frameBusy.current || video.readyState < 2 || Date.now() - lastOcrAt.current < 1500) return;
+      canvas.width = 640;
+      canvas.height = 360;
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const pixels = context.getImageData(32, 30, 576, 190).data;
+      let signature = 0;
+      for (let index = 0; index < pixels.length; index += 32) signature += pixels[index] + pixels[index + 1] + pixels[index + 2];
+      const previous = lastFrameSignature.current;
+      lastFrameSignature.current = signature;
+      if (previous !== null && Math.abs(signature - previous) < 1800) {
+        setOcrState('watching');
+        return;
+      }
+      lastOcrAt.current = Date.now();
+      const text = await ocrRef.current(canvas);
+      if (!text) return;
+      const accepted = addMessageRef.current(text, focusedId, 'screen');
+      if (accepted) void requestAiRef.current(accepted);
+    }, 1600);
+    return () => window.clearInterval(timer);
+  }, [captureState, calibrated, focusedId]);
+  useEffect(() => () => {
+    aiAbortRef.current?.abort();
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    void ocrWorkerRef.current?.terminate();
+  }, []);
   const focus = (id: string) => { setFocusedId(id); setPlayers((old) => old.map((player) => ({ ...player, focused: player.id === id }))); };
   const modeLabel = preferences.mode === 'quick' ? 'سريع' : 'هادئ';
   return <div className="space-y-5">
+    <video ref={videoRef} className="hidden" muted playsInline />
+    <canvas ref={canvasRef} className="hidden" />
     <PageHeading eyebrow="live workspace / 01" title="المساعد الحي" description="خلّك داخل اللحظة. نقرأ ما تختاره، نفهم السياق، ونترك لك القرار الأخير." action={<div className="flex items-center gap-2"><StatusPill>{modeLabel} mode</StatusPill><StatusPill tone="muted">العربية · {dialect.dialect}</StatusPill></div>} />
     {notice && <div className="flex items-center justify-between rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-xs text-primary rise"><span>{notice}</span><button type="button" onClick={() => setNotice('')} data-testid="button-dismiss-notice"><X size={14} /></button></div>}
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
@@ -197,9 +421,10 @@ function LiveAssistant({ store }: { store: ReturnType<typeof useCopilotStore> })
             <div className="relative flex items-start justify-between gap-4"><div><div className="mb-2 flex items-center gap-2 text-xs font-bold text-primary"><Activity size={15} />مصدر المحادثة</div><h2 className="text-lg font-extrabold">مشاركة نافذة أفاكن</h2><p className="mt-1 max-w-sm text-xs leading-5 text-muted-foreground">لا نستخدم الكاميرا. لا تُحفظ الصور. المشاركة تبقى حتى تضغط إيقاف.</p></div><div className={`grid h-11 w-11 place-items-center rounded-xl ${captureState === 'capturing' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}><Monitor size={20} /></div></div>
             <div className="mt-5 flex flex-wrap items-center gap-2">
               {captureState === 'capturing' ? <button type="button" onClick={stopCapture} data-testid="button-stop-capture" className="inline-flex items-center gap-2 rounded-lg bg-destructive px-4 py-2.5 text-xs font-bold text-destructive-foreground"><X size={15} />إيقاف الالتقاط</button> : <button type="button" disabled={captureState === 'requesting'} onClick={startCapture} data-testid="button-start-capture" className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-xs font-bold text-primary-foreground disabled:opacity-60">{captureState === 'requesting' ? <RefreshCw size={15} className="animate-spin" /> : <Radio size={15} />}{captureState === 'requesting' ? 'بانتظار الإذن…' : 'ابدأ مشاركة الشاشة'}</button>}
-              <button type="button" onClick={() => setNotice('صق لقطة شاشة في تطبيقك ثم اكتب النص الظاهر هنا. OCR سيكون مزوداً اختيارياً لاحقاً.')} data-testid="button-screenshot-fallback" className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-xs font-bold hover:bg-muted"><FileText size={15} />استخدام صورة / نص</button>
+               <button type="button" onClick={() => document.getElementById('chat-image-input')?.click()} data-testid="button-screenshot-fallback" className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-xs font-bold hover:bg-muted"><FileText size={15} />قراءة صورة محلياً</button>
+               <input id="chat-image-input" type="file" accept="image/*" className="hidden" onChange={handleScreenshot} />
             </div>
-            <div className="mt-4 flex items-center gap-2 text-[11px] text-muted-foreground"><span className={`h-2 w-2 rounded-full ${captureState === 'capturing' ? 'bg-primary' : captureState === 'denied' || captureState === 'ended' ? 'bg-accent' : 'bg-muted-foreground/40'}`} />{captureState === 'capturing' ? 'متصل — لا يوجد OCR مفعّل' : captureState === 'denied' ? 'الإذن مرفوض' : captureState === 'ended' ? 'انتهت المشاركة' : 'جاهز للاتصال'}</div>
+            <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-muted-foreground"><span className="flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${captureState === 'capturing' ? 'bg-primary' : captureState === 'denied' || captureState === 'ended' ? 'bg-accent' : 'bg-muted-foreground/40'}`} />الشاشة: {captureState === 'capturing' ? 'متصلة' : captureState === 'denied' ? 'مرفوضة' : captureState === 'ended' ? 'انتهت' : 'غير متصلة'}</span><span>الشات: {calibrated ? 'جاهز' : 'غير محدد'}</span><span>OCR: {ocrState === 'reading' ? 'يقرأ' : ocrState === 'unavailable' ? 'غير متاح' : ocrState === 'watching' ? 'يراقب التغيّر' : 'متوقف'}</span><span>AI: {aiState === 'working' ? 'يحلل' : aiState === 'paused' ? 'متوقف مؤقتاً' : 'جاهز'}</span></div>
           </div>
           <div className="rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">
             <div className="flex items-center justify-between"><div><div className="mb-2 flex items-center gap-2 text-xs font-bold text-primary"><Focus size={15} />معايرة سريعة</div><h2 className="text-lg font-extrabold">حدد فقاعة الدردشة</h2></div><StatusPill tone={calibrated ? 'teal' : 'muted'}>{calibrated ? 'تم التحديد' : 'مطلوب مرة واحدة'}</StatusPill></div>
@@ -259,7 +484,7 @@ function SettingsPage({ store }: { store: ReturnType<typeof useCopilotStore> }) 
   const update = <K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) => setPreferences((old) => ({ ...old, [key]: value }));
   const exportData = () => { const payload = { preferences, dialect, profiles, messages, suggestions }; const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'rafiq-avakin-data.json'; anchor.click(); URL.revokeObjectURL(url); setFeedback('تم تجهيز نسخة بياناتك محلياً.'); };
   const clear = () => { if (window.confirm('حذف كل بيانات رفيق أفاكن من هذا المتصفح؟')) { setMessages([]); setSuggestions([]); setHistory([]); setPlayers(initialPlayers); setSessions([]); setFeedback('تم تنظيف بيانات الجلسات والردود.'); } };
-  return <div><PageHeading eyebrow="control room / 05" title="الإعدادات" description="اضبط النبرة والخصوصية كما تحب. كل شيء يبقى على جهازك." />{feedback && <div className="mb-5 rounded-lg bg-primary/10 px-4 py-3 text-xs font-bold text-primary">{feedback}</div>}<div className="grid gap-5 lg:grid-cols-2"><SettingsCard icon={<Languages size={18} />} title="اللهجة واللغة"><div className="grid gap-4 sm:grid-cols-2"><label className="text-xs font-bold">اللهجة<select value={dialect.dialect} onChange={(event) => setDialect((old) => ({ ...old, dialect: event.target.value as Dialect }))} data-testid="select-dialect" className="mt-2 w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm"><option>خليجي أبيض</option><option>سعودي</option><option>مصري</option><option>شامي</option></select></label><label className="text-xs font-bold">لغة الرد<select value={dialect.replyLanguage} onChange={(event) => setDialect((old) => ({ ...old, replyLanguage: event.target.value as DialectSettings['replyLanguage'] }))} data-testid="select-reply-language" className="mt-2 w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm"><option>العربية</option><option>عربي + English</option></select></label></div><Range label={`قوة اللهجة ${dialect.strength}%`} value={dialect.strength} onChange={(value) => setDialect((old) => ({ ...old, strength: value }))} testId="range-dialect-strength" /><Toggle label="علامات الترقيم" description="ردود مرتبة وسهلة القراءة" checked={dialect.punctuation} onChange={(value) => setDialect((old) => ({ ...old, punctuation: value }))} testId="toggle-punctuation" /></SettingsCard><SettingsCard icon={<Zap size={18} />} title="طريقة العمل"><Toggle label="الوضع السريع" description="اقتراحات أقصر أثناء المحادثات السريعة" checked={preferences.mode === 'quick'} onChange={(value) => update('mode', value ? 'quick' : 'calm')} testId="toggle-quick-mode" /><Toggle label="التعلّم من اختياراتي" description="يستخدم المفضلة لتحسين النبرة محلياً" checked={preferences.learnStyle} onChange={(value) => update('learnStyle', value)} testId="toggle-learning" /><Toggle label="عرض الترجمة المساعدة" description="إظهار معنى مختصر عند توفره" checked={preferences.showTranslation} onChange={(value) => update('showTranslation', value)} testId="toggle-translation" /></SettingsCard><SettingsCard icon={<ShieldCheck size={18} />} title="الخصوصية"><Toggle label="السماح بالتقاط الشاشة" description="يطلب إذناً من المتصفح في كل جلسة" checked={preferences.privacyCapture} onChange={(value) => update('privacyCapture', value)} testId="toggle-privacy-capture" /><Toggle label="واجهة مضغوطة" description="مناسبة للنوافذ الجانبية الضيقة" checked={preferences.compactMode} onChange={(value) => update('compactMode', value)} testId="toggle-compact-mode" /><div className="mt-4 rounded-lg bg-muted/70 p-3 text-xs leading-5 text-muted-foreground">لا يوجد OCR في هذه النسخة. لا يتم حفظ صور الشاشة ولا إرسال نصوص إلى خادم.</div></SettingsCard><SettingsCard icon={<Download size={18} />} title="بياناتك"><div className="flex flex-wrap gap-2"><button type="button" onClick={exportData} data-testid="button-export-data" className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-bold hover:bg-muted"><Download size={14} />تصدير نسخة</button><button type="button" onClick={() => document.getElementById('data-import-input')?.click()} data-testid="button-import-data" className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-bold hover:bg-muted"><Upload size={14} />استيراد</button><input id="data-import-input" data-testid="input-import-data" type="file" accept="application/json,.json" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => { try { const data = JSON.parse(String(reader.result)); if (data.preferences) setPreferences(data.preferences); if (data.dialect) setDialect(data.dialect); if (Array.isArray(data.profiles)) setProfiles(data.profiles); setFeedback('تم استيراد الإعدادات والشخصيات من الملف.'); } catch { setFeedback('تعذر قراءة الملف. اختر نسخة JSON صادرة من رفيق أفاكن.'); } }; reader.readAsText(file); }} /><button type="button" onClick={clear} data-testid="button-delete-session-data" className="inline-flex items-center gap-2 rounded-lg border border-destructive/30 px-3 py-2 text-xs font-bold text-destructive hover:bg-destructive/5"><Trash2 size={14} />حذف بيانات الجلسة</button></div></SettingsCard></div></div>;
+  return <div><PageHeading eyebrow="control room / 05" title="الإعدادات" description="اضبط النبرة والخصوصية كما تحب. كل شيء يبقى على جهازك." />{feedback && <div className="mb-5 rounded-lg bg-primary/10 px-4 py-3 text-xs font-bold text-primary">{feedback}</div>}<div className="grid gap-5 lg:grid-cols-2"><SettingsCard icon={<Languages size={18} />} title="اللهجة واللغة"><div className="grid gap-4 sm:grid-cols-2"><label className="text-xs font-bold">اللهجة<select value={dialect.dialect} onChange={(event) => setDialect((old) => ({ ...old, dialect: event.target.value as Dialect }))} data-testid="select-dialect" className="mt-2 w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm"><option>خليجي أبيض</option><option>سعودي</option><option>مصري</option><option>شامي</option></select></label><label className="text-xs font-bold">لغة الرد<select value={dialect.replyLanguage} onChange={(event) => setDialect((old) => ({ ...old, replyLanguage: event.target.value as DialectSettings['replyLanguage'] }))} data-testid="select-reply-language" className="mt-2 w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm"><option>العربية</option><option>عربي + English</option></select></label></div><Range label={`قوة اللهجة ${dialect.strength}%`} value={dialect.strength} onChange={(value) => setDialect((old) => ({ ...old, strength: value }))} testId="range-dialect-strength" /><Toggle label="علامات الترقيم" description="ردود مرتبة وسهلة القراءة" checked={dialect.punctuation} onChange={(value) => setDialect((old) => ({ ...old, punctuation: value }))} testId="toggle-punctuation" /></SettingsCard><SettingsCard icon={<Zap size={18} />} title="طريقة العمل"><Toggle label="الوضع السريع" description="اقتراحات أقصر أثناء المحادثات السريعة" checked={preferences.mode === 'quick'} onChange={(value) => update('mode', value ? 'quick' : 'calm')} testId="toggle-quick-mode" /><Toggle label="التعلّم من اختياراتي" description="يستخدم المفضلة لتحسين النبرة محلياً" checked={preferences.learnStyle} onChange={(value) => update('learnStyle', value)} testId="toggle-learning" /><Toggle label="عرض الترجمة المساعدة" description="إظهار معنى مختصر عند توفره" checked={preferences.showTranslation} onChange={(value) => update('showTranslation', value)} testId="toggle-translation" /></SettingsCard><SettingsCard icon={<ShieldCheck size={18} />} title="الخصوصية"><Toggle label="السماح بالتقاط الشاشة" description="يطلب إذناً من المتصفح في كل جلسة" checked={preferences.privacyCapture} onChange={(value) => update('privacyCapture', value)} testId="toggle-privacy-capture" /><Toggle label="واجهة مضغوطة" description="مناسبة للنوافذ الجانبية الضيقة" checked={preferences.compactMode} onChange={(value) => update('compactMode', value)} testId="toggle-compact-mode" /><div className="mt-4 rounded-lg bg-muted/70 p-3 text-xs leading-5 text-muted-foreground">OCR مجاني ومحلي في المتصفح. تتم مقارنة تغيّر منطقة الشات محلياً ولا تُرسل إطارات الشاشة إلى أي خدمة.</div></SettingsCard><SettingsCard icon={<Download size={18} />} title="بياناتك"><div className="flex flex-wrap gap-2"><button type="button" onClick={exportData} data-testid="button-export-data" className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-bold hover:bg-muted"><Download size={14} />تصدير نسخة</button><button type="button" onClick={() => document.getElementById('data-import-input')?.click()} data-testid="button-import-data" className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2.5 text-xs font-bold hover:bg-muted"><Upload size={14} />استيراد</button><input id="data-import-input" data-testid="input-import-data" type="file" accept="application/json,.json" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => { try { const data = JSON.parse(String(reader.result)); if (data.preferences) setPreferences(data.preferences); if (data.dialect) setDialect(data.dialect); if (Array.isArray(data.profiles)) setProfiles(data.profiles); setFeedback('تم استيراد الإعدادات والشخصيات من الملف.'); } catch { setFeedback('تعذر قراءة الملف. اختر نسخة JSON صادرة من رفيق أفاكن.'); } }; reader.readAsText(file); }} /><button type="button" onClick={clear} data-testid="button-delete-session-data" className="inline-flex items-center gap-2 rounded-lg border border-destructive/30 px-3 py-2 text-xs font-bold text-destructive hover:bg-destructive/5"><Trash2 size={14} />حذف بيانات الجلسة</button></div></SettingsCard></div></div>;
 }
 function SettingsCard({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) { return <section className="rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6"><div className="mb-5 flex items-center gap-2 font-extrabold"><span className="text-primary">{icon}</span>{title}</div>{children}</section>; }
 function Toggle({ label, description, checked, onChange, testId }: { label: string; description: string; checked: boolean; onChange: (value: boolean) => void; testId: string }) { return <label className="mb-3 flex cursor-pointer items-center justify-between gap-4 rounded-lg p-2 hover:bg-muted/60"><div><div className="text-xs font-bold">{label}</div><div className="mt-1 text-[10px] text-muted-foreground">{description}</div></div><button type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)} data-testid={testId} className={`relative h-6 w-10 shrink-0 rounded-full transition-colors ${checked ? 'bg-primary' : 'bg-border'}`}><span className={`absolute top-1 h-4 w-4 rounded-full bg-card shadow-sm transition-transform ${checked ? 'right-1' : 'right-5'}`} /></button></label>; }
